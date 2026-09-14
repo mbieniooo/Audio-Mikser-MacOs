@@ -25,21 +25,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         statusItem = item
 
-        let hosting = NSHostingController(rootView: PopoverView(model: model, onQuit: { NSApp.terminate(nil) }))
-        hosting.sizingOptions = [.preferredContentSize]
-        popover.contentViewController = hosting
         popover.behavior = .transient
         popover.animates = false
         popover.delegate = self
 
         model.start()
-        // Pre-warm: SwiftUI's first layout costs ~120 ms; do it now, off the user's click.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak hosting] in
-            guard let hosting else { return }
-            hosting.loadViewIfNeeded()
-            hosting.view.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
-            hosting.view.layoutSubtreeIfNeeded()
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.prepareContent() }
         let channel = ControlChannel(model: model)
         channel.onQuit = { NSApp.terminate(nil) }
         channel.popoverHandler = { [weak self] open in
@@ -59,6 +50,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.stop()
     }
 
+    /// Builds and pre-warms the SwiftUI content once. The first layout costs ~120 ms, so it happens
+    /// here, off the user's click. (Dropping the content after close was measured: it frees nothing.)
+    private func prepareContent() {
+        guard popover.contentViewController == nil else { return }
+        let hosting = NSHostingController(rootView: PopoverView(model: model, onQuit: { NSApp.terminate(nil) }))
+        hosting.sizingOptions = [.preferredContentSize]
+        hosting.loadViewIfNeeded()
+        hosting.view.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+        hosting.view.layoutSubtreeIfNeeded()
+        popover.contentViewController = hosting
+    }
+
     @objc private func togglePopover() {
         if popover.isShown { closePopover() } else { openPopover() }
     }
@@ -66,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func openPopover() {
         guard let button = statusItem?.button else { return }
         openRequestedAt = CFAbsoluteTimeGetCurrent()
+        prepareContent()
         model.freezeOrder()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -93,10 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // the PNG is readable on its own in both appearances.
             let composed = NSImage(size: view.bounds.size)
             composed.lockFocus()
-            NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
-                NSColor.windowBackgroundColor.setFill()
-                NSRect(origin: .zero, size: view.bounds.size).fill()
-            }
+            (name == "dark" ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.94, alpha: 1)).setFill()
+            NSRect(origin: .zero, size: view.bounds.size).fill()
             rep.draw(in: NSRect(origin: .zero, size: view.bounds.size))
             composed.unlockFocus()
             guard let tiff = composed.tiffRepresentation, let outRep = NSBitmapImageRep(data: tiff),
