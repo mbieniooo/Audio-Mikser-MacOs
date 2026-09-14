@@ -32,5 +32,6 @@ h.suite("Types") { h in
 }
 
 groupingSuite(h)
+gainSuite(h)
 
 h.finish()

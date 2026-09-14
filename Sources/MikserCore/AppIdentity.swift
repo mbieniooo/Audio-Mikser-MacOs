@@ -121,6 +121,15 @@ public enum AppIdentity {
         let id = app.bundleIdentifier ?? "unknown"
         return ResolvedIdentity(key: .bundle(id), displayName: app.localizedName ?? id, bundleID: id,
                                 icon: app.icon, appPID: app.processIdentifier,
-                                isUserFacingApp: app.activationPolicy != .prohibited)
+                                isUserFacingApp: Self.isUserFacing(app))
+    }
+
+    /// Dock apps always; menu bar apps unless they are Apple system agents (Siri, Control Center, loginwindow…).
+    static func isUserFacing(_ app: NSRunningApplication) -> Bool {
+        switch app.activationPolicy {
+        case .regular: return true
+        case .accessory: return !(app.bundleURL?.path.hasPrefix("/System/") ?? true)
+        default: return false
+        }
     }
 }
