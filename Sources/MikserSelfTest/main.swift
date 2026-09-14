@@ -33,5 +33,6 @@ h.suite("Types") { h in
 
 groupingSuite(h)
 gainSuite(h)
+settingsSuite(h)
 
 h.finish()

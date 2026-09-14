@@ -1,0 +1,7 @@
+#!/bin/bash
+# Wrapper around the mikserctl product built by SwiftPM.
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+for BIN in "$DIR/.build/release/mikserctl" "$DIR/.build/debug/mikserctl"; do
+  if [[ -x "$BIN" ]]; then exec "$BIN" "$@"; fi
+done
+echo "build first (swift build)"; exit 1

@@ -49,7 +49,7 @@ public enum GainMath {
                 }
             }
         }
-        if abs(g - target) < 1e-6 { g = target }
+        if abs(g - target) < 1e-4 { g = target } // Float32 stalls ~3e-5 short; 1e-4 is -80 dB
         return Result(gain: g, peakIn: pin, peakOut: pout)
     }
 
@@ -82,7 +82,7 @@ public enum GainMath {
                 }
             }
             zeroTail(output[0], from: frames * oc)
-            if abs(g - target) < 1e-6 { g = target }
+            if abs(g - target) < 1e-4 { g = target } // Float32 stalls ~3e-5 short; 1e-4 is -80 dB
             return Result(gain: g, peakIn: pin, peakOut: pout)
         }
 
@@ -103,7 +103,7 @@ public enum GainMath {
                 }
             }
             for b in output { zeroTail(b, from: frames) }
-            if abs(g - target) < 1e-6 { g = target }
+            if abs(g - target) < 1e-4 { g = target } // Float32 stalls ~3e-5 short; 1e-4 is -80 dB
             return Result(gain: g, peakIn: pin, peakOut: pout)
         }
 
