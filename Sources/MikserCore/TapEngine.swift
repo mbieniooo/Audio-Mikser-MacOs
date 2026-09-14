@@ -9,6 +9,9 @@ public struct TapStats {
     public let peakOut: Float
     public let callbacks: UInt64
     public let callbackAgeMs: Double
+    /// Time from AudioDeviceStart to the first IO callback; -1 until the first callback.
+    public let startDelayMs: Double
+    public let ageMs: Double
     public let sampleRate: Double
     public let bufferFrames: UInt32
     public let outputUID: String
@@ -22,6 +25,7 @@ public struct EngineStats {
     public let wantedKeys: [AppGroupKey]
     public let errors: [AppGroupKey: String]
     public let rebuilds: Int
+    public let transientRetries: Int
     public let failSafes: Int
     public let lastError: String?
     public let outputUID: String?
@@ -37,6 +41,7 @@ public final class TapEngine {
     private var wanted: [AppGroupKey: (level: AppLevel, app: AudioApp)] = [:]
     private var pendingRelease: [AppGroupKey: DispatchWorkItem] = [:]
     private var errors: [AppGroupKey: String] = [:]
+    private var transientRetries = 0
     private var rebuilds = 0
     private var failSafes = 0
     private var lastError: String?
@@ -107,7 +112,7 @@ public final class TapEngine {
         pendingRelease[key] = nil
         wanted[key] = (level, app)
         if let tap = taps[key], tap.isActive,
-           tap.processObjectIDs == app.processObjectIDs, tap.outputUID == output.deviceUID {
+           tap.requestedObjectIDs == app.processObjectIDs, tap.outputUID == output.deviceUID {
             tap.target = level.effectiveGain
             return
         }
@@ -120,13 +125,26 @@ public final class TapEngine {
         guard output.deviceID != kAudioObjectUnknown, let uid = output.deviceUID else {
             fail(key, "no default output device"); return
         }
-        guard !entry.app.processObjectIDs.isEmpty else { fail(key, "the app has no audio processes"); return }
-        let tap = AppTap(key: key, processObjectIDs: entry.app.processObjectIDs,
+        // Only tap process objects the HAL still knows; a stale id makes the tap fail with '!obj'.
+        let live = Set(HAL.readObjectIDs(HAL.system, kAudioHardwarePropertyProcessObjectList) ?? [])
+        let alive = entry.app.processObjectIDs.filter { live.contains($0) }
+        guard !alive.isEmpty else {
+            // The registry will report the new process set shortly; nothing to fail loudly about.
+            transientRetries += 1
+            onActiveChange?(Set(taps.keys))
+            return
+        }
+        let tap = AppTap(key: key, requestedObjectIDs: entry.app.processObjectIDs, processObjectIDs: alive,
                          outputDeviceID: output.deviceID, outputUID: uid, target: entry.level.effectiveGain)
         do {
             try tap.activate()
             taps[key] = tap
             errors[key] = nil
+            onActiveChange?(Set(taps.keys))
+        } catch TapError.coreAudio(let status, _) where status == kAudioHardwareBadObjectError {
+            // A process vanished between the list read and the tap creation: transient, retried on the next change.
+            tap.invalidate()
+            transientRetries += 1
             onActiveChange?(Set(taps.keys))
         } catch {
             tap.invalidate()
@@ -162,7 +180,7 @@ public final class TapEngine {
                 continue
             }
             if let entry = wanted[key] { wanted[key] = (entry.level, app) }
-            if let tap = taps[key], tap.processObjectIDs != app.processObjectIDs, wanted[key] != nil {
+            if let tap = taps[key], tap.requestedObjectIDs != app.processObjectIDs, wanted[key] != nil {
                 rebuilds += 1
                 buildLocked(key)
             }
@@ -198,14 +216,18 @@ public final class TapEngine {
         let stats = taps.values.map { tap -> TapStats in
             let last = tap.lastCallbackHostTime
             let age = last == 0 ? -1 : Double(now &- last) * Self.timebase
+            let first = tap.firstCallbackHostTime
+            let startDelay = (first == 0 || tap.activatedAt == 0) ? -1 : Double(first &- tap.activatedAt) * Self.timebase
+            let ageSinceStart = tap.activatedAt == 0 ? -1 : Double(now &- tap.activatedAt) * Self.timebase
             return TapStats(key: tap.key, target: tap.target, current: tap.currentGain,
                             peakIn: tap.peakIn, peakOut: tap.peakOut, callbacks: tap.callbacks,
-                            callbackAgeMs: age, sampleRate: tap.sampleRate, bufferFrames: tap.bufferFrames,
+                            callbackAgeMs: age, startDelayMs: startDelay, ageMs: ageSinceStart,
+                            sampleRate: tap.sampleRate, bufferFrames: tap.bufferFrames,
                             outputUID: tap.outputUID, processObjectIDs: tap.processObjectIDs,
                             isFloat32: tap.isFloat32, alive: tap.isAlive)
         }.sorted { $0.key.raw < $1.key.raw }
         return EngineStats(taps: stats, wantedKeys: wanted.keys.sorted { $0.raw < $1.raw }, errors: errors,
-                           rebuilds: rebuilds, failSafes: failSafes, lastError: lastError,
+                           rebuilds: rebuilds, transientRetries: transientRetries, failSafes: failSafes, lastError: lastError,
                            outputUID: output.deviceUID, outputName: output.deviceName, sampleRate: output.sampleRate)
     }
 }

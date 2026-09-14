@@ -86,7 +86,8 @@ public final class MixerModel {
 
     /// Resolves a row by key, bundle id, or display name (case-insensitive). For the control channel.
     public func app(matching text: String) -> AudioApp? {
-        let t = text.lowercased()
+        let t = text.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !t.isEmpty else { return nil }
         return allApps.first { $0.id.raw.lowercased() == t }
             ?? allApps.first { ($0.bundleID ?? "").lowercased() == t }
             ?? allApps.first { $0.displayName.lowercased() == t }

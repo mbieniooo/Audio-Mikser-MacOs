@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
     private var clickMonitor: Any?
     private var openRequestedAt: CFAbsoluteTime = 0
+    private var lastOpenMs: Double?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -34,6 +35,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.start()
         let channel = ControlChannel(model: model)
         channel.onQuit = { NSApp.terminate(nil) }
+        channel.popoverHandler = { [weak self] open in
+            guard let self else { return nil }
+            if open, !self.popover.isShown { self.openPopover() }
+            if !open, self.popover.isShown { self.closePopover() }
+            return self.lastOpenMs
+        }
+        channel.snapshotHandler = { [weak self] dir in self?.snapshotPopover(into: dir) ?? [] }
         channel.install()
         control = channel
         NSLog("Mikser started (running=\(model.isRunning) error=\(model.startError ?? "none"))")
@@ -63,8 +71,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
+    /// Draws the popover content in light and dark appearance to PNG files (no screen-recording permission needed).
+    private func snapshotPopover(into dir: URL) -> [String] {
+        guard popover.isShown, let view = popover.contentViewController?.view else { return [] }
+        var written: [String] = []
+        let original = popover.appearance
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+            popover.appearance = NSAppearance(named: appearance)
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            guard let png = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else { continue }
+            let url = dir.appendingPathComponent("popover-\(name).png")
+            if (try? png.write(to: url)) != nil { written.append(url.path) }
+        }
+        popover.appearance = original
+        return written
+    }
+
     func popoverDidShow(_ notification: Notification) {
         let ms = (CFAbsoluteTimeGetCurrent() - openRequestedAt) * 1000
+        lastOpenMs = ms
         NSLog("Mikser popover open in %.1f ms (%d rows)", ms, model.rows.count)
     }
 

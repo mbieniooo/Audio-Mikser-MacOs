@@ -74,6 +74,30 @@ public enum HAL {
     public static func isAlive(_ device: AudioObjectID) -> Bool { (readUInt32(device, kAudioDevicePropertyDeviceIsAlive) ?? 0) != 0 }
     public static func tapList() -> [AudioObjectID] { readObjectIDs(system, kAudioHardwarePropertyTapList) ?? [] }
 
+    public struct OutputDevice { public let id: AudioObjectID; public let uid: String; public let name: String }
+
+    /// Every device with at least one output stream, in HAL order.
+    public static func outputDevices() -> [OutputDevice] {
+        (readObjectIDs(system, kAudioHardwarePropertyDevices) ?? []).compactMap { dev in
+            var addr = address(kAudioDevicePropertyStreams, scope: kAudioDevicePropertyScopeOutput)
+            var size: UInt32 = 0
+            guard AudioObjectGetPropertyDataSize(dev, &addr, 0, nil, &size) == noErr, size > 0 else { return nil }
+            guard let uid = deviceUID(dev) else { return nil }
+            return OutputDevice(id: dev, uid: uid, name: deviceName(dev) ?? uid)
+        }
+    }
+
+    public static func setDefaultOutputDevice(_ id: AudioObjectID) -> OSStatus {
+        var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
+        var value = id
+        return AudioObjectSetPropertyData(system, &addr, 0, nil, UInt32(MemoryLayout<AudioObjectID>.size), &value)
+    }
+
+    /// Names of aggregate devices this process can see whose name starts with "Mikser ".
+    public static func mikserDeviceNames() -> [String] {
+        (readObjectIDs(system, kAudioHardwarePropertyDevices) ?? []).compactMap { deviceName($0) }.filter { $0.hasPrefix("Mikser ") }
+    }
+
     public static func fourCC(_ status: OSStatus) -> String {
         let bytes = withUnsafeBytes(of: status.bigEndian) { Array($0) }
         let printable = bytes.allSatisfy { (32...126).contains($0) }

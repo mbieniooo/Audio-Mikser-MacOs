@@ -18,6 +18,9 @@ public enum TapError: Error, CustomStringConvertible {
 /// ramped gain. Teardown restores the app's normal audio.
 final class AppTap {
     let key: AppGroupKey
+    /// The app's process objects as the registry reported them (used to detect process-set changes).
+    let requestedObjectIDs: [AudioObjectID]
+    /// The subset that was alive when the tap was created (what the tap actually covers).
     let processObjectIDs: [AudioObjectID]
     let outputDeviceID: AudioObjectID
     let outputUID: String
@@ -29,15 +32,18 @@ final class AppTap {
     private(set) var sampleRate: Double = 0
     private(set) var bufferFrames: UInt32 = 0
     private(set) var isFloat32 = true
+    private(set) var activatedAt: UInt64 = 0
 
     // Shared with the real-time thread. Aligned 32/64-bit loads and stores are atomic on Apple
     // silicon; the IO block only ever sees these raw pointers, never `self`.
-    // floats: 0 target, 1 current, 2 peakIn, 3 peakOut, 4 ramp — counters: 0 callbacks, 1 last host time.
+    // floats: 0 target, 1 current, 2 peakIn, 3 peakOut, 4 ramp — counters: 0 callbacks, 1 last host time, 2 first host time.
     private let floats: UnsafeMutablePointer<Float>
     private let counters: UnsafeMutablePointer<UInt64>
 
-    init(key: AppGroupKey, processObjectIDs: [AudioObjectID], outputDeviceID: AudioObjectID, outputUID: String, target: Float) {
+    init(key: AppGroupKey, requestedObjectIDs: [AudioObjectID], processObjectIDs: [AudioObjectID],
+         outputDeviceID: AudioObjectID, outputUID: String, target: Float) {
         self.key = key
+        self.requestedObjectIDs = requestedObjectIDs
         self.processObjectIDs = processObjectIDs
         self.outputDeviceID = outputDeviceID
         self.outputUID = outputUID
@@ -45,8 +51,8 @@ final class AppTap {
         floats.initialize(repeating: 0, count: 5)
         floats[0] = max(0, min(1, target))
         floats[1] = 1 // start at unity and ramp to the target: no step when the path switches
-        counters = .allocate(capacity: 2)
-        counters.initialize(repeating: 0, count: 2)
+        counters = .allocate(capacity: 3)
+        counters.initialize(repeating: 0, count: 3)
         ioQueue = DispatchQueue(label: "com.mieszko.mikser.io", qos: .userInteractive)
     }
 
@@ -65,6 +71,7 @@ final class AppTap {
     var peakOut: Float { floats[3] }
     var callbacks: UInt64 { counters[0] }
     var lastCallbackHostTime: UInt64 { counters[1] }
+    var firstCallbackHostTime: UInt64 { counters[2] }
     var isActive: Bool { procID != nil }
     var isAlive: Bool { aggregateID != kAudioObjectUnknown && HAL.isAlive(aggregateID) }
 
@@ -131,6 +138,7 @@ final class AppTap {
         guard status == noErr, let created = proc else { teardown(); throw TapError.coreAudio(status, "creating the IO proc") }
         procID = created
         do { try check(AudioDeviceStart(aggregateID, created), "starting the aggregate device") } catch { teardown(); throw error }
+        activatedAt = mach_absolute_time()
     }
 
     func invalidate() { teardown() }
@@ -164,6 +172,7 @@ final class AppTap {
         let outList = UnsafeMutableAudioBufferListPointer(output)
         counters[0] &+= 1
         counters[1] = mach_absolute_time()
+        if counters[2] == 0 { counters[2] = counters[1] }
         guard isFloat32 else { GainMath.passthrough(input: inList, output: outList); return }
         let r = GainMath.mixLists(input: inList, output: outList, gain: floats[1], target: floats[0], ramp: floats[4])
         floats[1] = r.gain

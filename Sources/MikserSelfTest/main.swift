@@ -22,6 +22,13 @@ if args.contains("--live-registry") {
     exit(0)
 }
 
+if args.contains("--taps") {
+    print("global taps visible to this process: \(HAL.tapList().count)")
+    print("Mikser aggregate devices visible: \(HAL.mikserDeviceNames())")
+    print("default output: \(HAL.defaultOutputDevice().flatMap { HAL.deviceName($0) } ?? "-")")
+    exit(0)
+}
+
 let h = Harness()
 
 h.suite("Types") { h in

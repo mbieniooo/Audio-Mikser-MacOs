@@ -5,11 +5,10 @@ import MikserCore
 let argv = Array(CommandLine.arguments.dropFirst())
 guard let cmd = argv.first, !cmd.isEmpty else {
     print("usage: mikserctl ping | set <app> <0…1> | mute <app> | unmute <app> | reset | stats | dump | quit")
+    print("       mikserctl output list | output set <device name> | login on|off|status | popover open|close")
     exit(2)
 }
-var info: [String: Any] = ["cmd": cmd]
-if argv.count > 1 { info["app"] = argv[1] }
-if argv.count > 2, let level = Double(argv[2]) { info["level"] = level }
+var info: [String: Any] = ["cmd": cmd, "args": Array(argv.dropFirst())]
 
 let replyURL = ControlChannel.replyURL
 func modificationDate() -> Date? {

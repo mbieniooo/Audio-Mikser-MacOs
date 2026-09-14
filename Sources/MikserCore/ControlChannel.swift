@@ -2,7 +2,8 @@ import Foundation
 import AppKit
 
 /// Hidden verification channel: distributed notification in, JSON reply file + reply notification out.
-/// Commands: ping, set <app> <level>, mute <app>, unmute <app>, reset, stats, dump, quit.
+/// Commands: ping, set <app> <level>, mute <app>, unmute <app>, reset, stats, dump, quit,
+/// output list | output set <name>, login on|off|status, popover open|close.
 @MainActor
 public final class ControlChannel {
     public nonisolated static let controlName = Notification.Name("com.mieszko.mikser.control")
@@ -15,6 +16,10 @@ public final class ControlChannel {
     private let model: MixerModel
     private var observer: NSObjectProtocol?
     public var onQuit: (() -> Void)?
+    /// open → true / close → false; returns the last measured popover open time in ms, if any.
+    public var popoverHandler: ((Bool) -> Double?)?
+    /// Renders the open popover content to PNG files in the given directory; returns the paths written.
+    public var snapshotHandler: ((URL) -> [String])?
 
     public init(model: MixerModel) { self.model = model }
 
@@ -32,8 +37,10 @@ public final class ControlChannel {
 
     private func handle(_ info: [AnyHashable: Any]) {
         let cmd = (info["cmd"] as? String ?? "").lowercased()
-        let appText = info["app"] as? String ?? ""
+        let args = info["args"] as? [String] ?? []
+        let appText = info["app"] as? String ?? args.first ?? ""
         let level = (info["level"] as? NSNumber)?.doubleValue ?? Double(info["level"] as? String ?? "")
+            ?? (args.count > 1 ? Double(args[1]) : nil)
         var reply: [String: Any] = ["cmd": cmd, "at": Date().timeIntervalSince1970, "ok": true]
 
         func needApp() -> AudioApp? {
@@ -75,6 +82,52 @@ public final class ControlChannel {
             }
             reply["visible"] = model.rows.map { $0.id.raw }
             reply["stats"] = Self.statsJSON(model.engine.snapshot())
+        case "output":
+            let devices = HAL.outputDevices().filter { !$0.name.hasPrefix("Mikser ") }
+            let current = HAL.defaultOutputDevice()
+            reply["devices"] = devices.map { ["id": Int($0.id), "uid": $0.uid, "name": $0.name, "default": $0.id == current] }
+            if args.first?.lowercased() == "set" {
+                let wanted = args.dropFirst().joined(separator: " ").lowercased()
+                if let dev = devices.first(where: { $0.name.lowercased() == wanted })
+                    ?? devices.first(where: { $0.name.lowercased().hasPrefix(wanted) }) {
+                    let status = HAL.setDefaultOutputDevice(dev.id)
+                    reply["ok"] = status == noErr
+                    reply["message"] = status == noErr ? "default output → \(dev.name)" : "could not switch: \(HAL.describe(status))"
+                } else {
+                    reply["ok"] = false
+                    reply["message"] = "no output device matches '\(wanted)'"
+                }
+            }
+        case "login":
+            let want = args.first?.lowercased() ?? "status"
+            if want == "on" || want == "off" {
+                do { try model.setLaunchAtLogin(want == "on") } catch { reply["ok"] = false; reply["message"] = "\(error)" }
+            }
+            reply["launchAtLogin"] = model.launchAtLogin
+        case "popover":
+            let open = (args.first?.lowercased() ?? "open") != "close"
+            let ms = popoverHandler?(open)
+            reply["popoverOpenMs"] = ms ?? -1
+            reply["visibleRows"] = model.rows.count
+            // Let the popover finish showing before the reply, so the timing is the fresh one.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self else { return }
+                var late = reply
+                late["popoverOpenMs"] = self.popoverHandler?(open) ?? -1
+                self.writeReply(late)
+            }
+            return
+        case "snapshot":
+            _ = popoverHandler?(true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self else { return }
+                var late = reply
+                let dir = Self.replyURL.deletingLastPathComponent()
+                late["files"] = self.snapshotHandler?(dir) ?? []
+                late["popoverOpenMs"] = self.popoverHandler?(true) ?? -1
+                self.writeReply(late)
+            }
+            return
         case "quit":
             reply["message"] = "quitting"
             writeReply(reply)
@@ -90,12 +143,14 @@ public final class ControlChannel {
     nonisolated static func statsJSON(_ s: EngineStats) -> [String: Any] {
         [
             "outputUID": s.outputUID ?? "", "outputName": s.outputName ?? "", "sampleRate": s.sampleRate,
-            "rebuilds": s.rebuilds, "failSafes": s.failSafes, "lastError": s.lastError ?? "",
+            "rebuilds": s.rebuilds, "transientRetries": s.transientRetries, "failSafes": s.failSafes, "lastError": s.lastError ?? "",
             "wanted": s.wantedKeys.map { $0.raw },
+            "globalTaps": HAL.tapList().count,
+            "mikserDevices": HAL.mikserDeviceNames(),
             "errors": Dictionary(uniqueKeysWithValues: s.errors.map { ($0.key.raw, $0.value) }),
             "taps": s.taps.map { t -> [String: Any] in
                 ["key": t.key.raw, "target": t.target, "current": t.current, "peakIn": t.peakIn, "peakOut": t.peakOut,
-                 "callbacks": t.callbacks, "callbackAgeMs": t.callbackAgeMs, "sampleRate": t.sampleRate,
+                 "callbacks": t.callbacks, "callbackAgeMs": t.callbackAgeMs, "startDelayMs": t.startDelayMs, "ageMs": t.ageMs, "sampleRate": t.sampleRate,
                  "bufferFrames": t.bufferFrames, "outputUID": t.outputUID, "objects": t.processObjectIDs.map { Int($0) },
                  "float32": t.isFloat32, "alive": t.alive]
             },
