@@ -1,0 +1,8 @@
+.build/
+build/
+*.app
+*.p12
+*.pem
+*.cer
+reply.json
+.DS_Store
