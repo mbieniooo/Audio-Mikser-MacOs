@@ -38,6 +38,8 @@ public final class MixerModel {
     @ObservationIgnored private let output: OutputDeviceMonitor
     @ObservationIgnored public let engine: TapEngine
     @ObservationIgnored private var frozenOrder: [AppGroupKey]?
+    @ObservationIgnored private var playingScaled: Set<AppGroupKey> = []
+    @ObservationIgnored private var popoverRefresh: DispatchSourceTimer?
 
     public init(settings: Settings = Settings()) {
         self.settings = settings
@@ -119,9 +121,42 @@ public final class MixerModel {
         if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
     }
 
-    /// While the popover is open the row order stays put so nothing jumps under the cursor.
-    public func freezeOrder() { frozenOrder = rows.map { $0.id } }
-    public func unfreezeOrder() { frozenOrder = nil; rebuildRows() }
+    /// While the popover is open the row order stays put so nothing jumps under the cursor, and the
+    /// playing marks of scaled apps refresh twice a second (their HAL flag goes quiet once tapped).
+    public func freezeOrder() {
+        refreshPlaying()
+        frozenOrder = nil
+        rebuildRows()
+        frozenOrder = rows.map { $0.id }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            if self.refreshPlaying() { self.rebuildRows() }
+        }
+        timer.resume()
+        popoverRefresh = timer
+    }
+
+    public func unfreezeOrder() {
+        popoverRefresh?.cancel()
+        popoverRefresh = nil
+        frozenOrder = nil
+        rebuildRows()
+    }
+
+    /// Returns true when the set of playing scaled apps changed.
+    @discardableResult
+    private func refreshPlaying() -> Bool {
+        let now = engine.playingKeys()
+        guard now != playingScaled else { return false }
+        playingScaled = now
+        return true
+    }
+
+    private func isPlaying(_ app: AudioApp) -> Bool {
+        activeKeys.contains(app.id) ? playingScaled.contains(app.id) : app.isPlaying
+    }
 
     // MARK: internals
 
@@ -144,18 +179,26 @@ public final class MixerModel {
         var visible = allApps.filter { app in
             app.isUserFacing || activeKeys.contains(app.id) || !settings.level(for: app.id).isFull
         }
-        if let order = frozenOrder {
-            let index = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        let playing = Dictionary(uniqueKeysWithValues: visible.map { ($0.id, isPlaying($0)) })
+        func order(_ a: AudioApp, _ b: AudioApp) -> Bool {
+            let pa = playing[a.id] ?? false, pb = playing[b.id] ?? false
+            if pa != pb { return pa }
+            let byName = a.displayName.localizedCaseInsensitiveCompare(b.displayName)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return a.id.raw < b.id.raw
+        }
+        if let frozen = frozenOrder {
+            let index = Dictionary(frozen.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
             visible.sort { a, b in
                 let ia = index[a.id] ?? Int.max, ib = index[b.id] ?? Int.max
-                return ia != ib ? ia < ib : Grouping.rowOrder(a, b)
+                return ia != ib ? ia < ib : order(a, b)
             }
         } else {
-            visible.sort(by: Grouping.rowOrder)
+            visible.sort(by: order)
         }
         let newRows = visible.map { app -> MixerRow in
             let level = settings.level(for: app.id)
-            return MixerRow(id: app.id, name: app.displayName, icon: app.icon, isPlaying: app.isPlaying,
+            return MixerRow(id: app.id, name: app.displayName, icon: app.icon, isPlaying: playing[app.id] ?? false,
                             level: level.level, muted: level.muted, isScaled: activeKeys.contains(app.id),
                             error: errors[app.id])
         }

@@ -33,6 +33,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.delegate = self
 
         model.start()
+        // Pre-warm: SwiftUI's first layout costs ~120 ms; do it now, off the user's click.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak hosting] in
+            guard let hosting else { return }
+            hosting.loadViewIfNeeded()
+            hosting.view.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+            hosting.view.layoutSubtreeIfNeeded()
+        }
         let channel = ControlChannel(model: model)
         channel.onQuit = { NSApp.terminate(nil) }
         channel.popoverHandler = { [weak self] open in
@@ -82,7 +89,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             view.displayIfNeeded()
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)
-            guard let png = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else { continue }
+            // The popover material supplies the real background; composite over the window colour so
+            // the PNG is readable on its own in both appearances.
+            let composed = NSImage(size: view.bounds.size)
+            composed.lockFocus()
+            NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
+                NSColor.windowBackgroundColor.setFill()
+                NSRect(origin: .zero, size: view.bounds.size).fill()
+            }
+            rep.draw(in: NSRect(origin: .zero, size: view.bounds.size))
+            composed.unlockFocus()
+            guard let tiff = composed.tiffRepresentation, let outRep = NSBitmapImageRep(data: tiff),
+                  let png = outRep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else { continue }
             let url = dir.appendingPathComponent("popover-\(name).png")
             if (try? png.write(to: url)) != nil { written.append(url.path) }
         }

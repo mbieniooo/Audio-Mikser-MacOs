@@ -36,7 +36,8 @@ final class AppTap {
 
     // Shared with the real-time thread. Aligned 32/64-bit loads and stores are atomic on Apple
     // silicon; the IO block only ever sees these raw pointers, never `self`.
-    // floats: 0 target, 1 current, 2 peakIn, 3 peakOut, 4 ramp — counters: 0 callbacks, 1 last host time, 2 first host time.
+    // floats: 0 target, 1 current, 2 peakIn, 3 peakOut, 4 ramp
+    // counters: 0 callbacks, 1 last host time, 2 first host time, 3 last host time with signal above -80 dB.
     private let floats: UnsafeMutablePointer<Float>
     private let counters: UnsafeMutablePointer<UInt64>
 
@@ -50,9 +51,10 @@ final class AppTap {
         floats = .allocate(capacity: 5)
         floats.initialize(repeating: 0, count: 5)
         floats[0] = max(0, min(1, target))
-        floats[1] = 1 // start at unity and ramp to the target: no step when the path switches
-        counters = .allocate(capacity: 3)
-        counters.initialize(repeating: 0, count: 3)
+        // A new tap is a new path: start at the target so a muted app never leaks its first 30 ms.
+        floats[1] = floats[0]
+        counters = .allocate(capacity: 4)
+        counters.initialize(repeating: 0, count: 4)
         ioQueue = DispatchQueue(label: "com.mieszko.mikser.io", qos: .userInteractive)
     }
 
@@ -72,6 +74,7 @@ final class AppTap {
     var callbacks: UInt64 { counters[0] }
     var lastCallbackHostTime: UInt64 { counters[1] }
     var firstCallbackHostTime: UInt64 { counters[2] }
+    var lastSignalHostTime: UInt64 { counters[3] }
     var isActive: Bool { procID != nil }
     var isAlive: Bool { aggregateID != kAudioObjectUnknown && HAL.isAlive(aggregateID) }
 
@@ -178,5 +181,6 @@ final class AppTap {
         floats[1] = r.gain
         floats[2] = r.peakIn
         floats[3] = r.peakOut
+        if r.peakIn > 1e-4 { counters[3] = counters[1] }
     }
 }

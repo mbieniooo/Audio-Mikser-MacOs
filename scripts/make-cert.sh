@@ -9,8 +9,8 @@ set -euo pipefail
 NAME="Mikser Dev"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
-valid()   { security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "\"$NAME\""; }
-present() { security find-identity -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "\"$NAME\""; }
+valid()   { local out; out="$(security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null || true)"; grep -q "\"$NAME\"" <<<"$out"; }
+present() { local out; out="$(security find-identity -p codesigning "$KEYCHAIN" 2>/dev/null || true)"; grep -q "\"$NAME\"" <<<"$out"; }
 
 if valid; then
   echo "identity already present and valid:"

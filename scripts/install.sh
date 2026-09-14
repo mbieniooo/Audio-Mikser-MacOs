@@ -22,7 +22,9 @@ if [[ ! -w "$DEST_DIR" ]]; then DEST_DIR="$HOME/Applications"; mkdir -p "$DEST_D
 DEST="$DEST_DIR/Mikser.app"
 
 if [[ -e "$DEST" ]]; then
-  if ! codesign -dv "$DEST" 2>&1 | grep -q "^Identifier=com.mieszko.mikser$"; then
+  # capture first: `grep -q` under pipefail would close the pipe early and fail the check
+  SIGINFO="$(codesign -dv "$DEST" 2>&1 || true)"
+  if ! grep -q "^Identifier=com.mieszko.mikser$" <<<"$SIGINFO"; then
     echo "refusing to replace $DEST: it is not a Mikser bundle"
     exit 1
   fi

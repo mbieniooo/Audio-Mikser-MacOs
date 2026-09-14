@@ -90,6 +90,19 @@ public final class TapEngine {
         queue.sync { Set(taps.keys) }
     }
 
+    /// Scaled apps whose tap carried signal within the last `holdMs`. A tapped process no longer reports
+    /// "running output" to the HAL (its direct path is muted), so this replaces that flag for scaled apps.
+    public func playingKeys(holdMs: Double = 500) -> Set<AppGroupKey> {
+        queue.sync {
+            let now = mach_absolute_time()
+            return Set(taps.values.compactMap { tap in
+                let last = tap.lastSignalHostTime
+                guard last != 0, Double(now &- last) * Self.timebase < holdMs else { return nil }
+                return tap.key
+            })
+        }
+    }
+
     // MARK: on queue
 
     private func applyLocked(_ level: AppLevel, _ app: AudioApp) {

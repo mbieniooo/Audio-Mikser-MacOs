@@ -8,7 +8,8 @@ IDENTITY="Mikser Dev"
 CONFIG="release"
 if [[ "${1:-}" == "--debug" ]]; then CONFIG="debug"; fi
 
-if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
+IDS="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+if ! grep -q "\"$IDENTITY\"" <<<"$IDS"; then
   echo "run scripts/make-cert.sh first"
   exit 1
 fi

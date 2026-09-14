@@ -81,6 +81,8 @@ public final class ControlChannel {
                         "scaled": model.activeKeys.contains(app.id), "error": model.errors[app.id] ?? ""]
             }
             reply["visible"] = model.rows.map { $0.id.raw }
+            reply["visibleRows"] = model.rows.map { ["key": $0.id.raw, "name": $0.name, "playing": $0.isPlaying, "scaled": $0.isScaled, "level": $0.level, "muted": $0.muted] }
+            reply["playingScaled"] = model.engine.playingKeys().map { $0.raw }
             reply["stats"] = Self.statsJSON(model.engine.snapshot())
         case "output":
             let devices = HAL.outputDevices().filter { !$0.name.hasPrefix("Mikser ") }
