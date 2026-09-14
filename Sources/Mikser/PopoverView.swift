@@ -26,6 +26,7 @@ struct PopoverView: View {
             FooterView(model: model, onQuit: onQuit)
         }
         .frame(width: 300)
+        .background(model.snapshotBackground ? Color(nsColor: .windowBackgroundColor) : Color.clear)
     }
 
     private var rowList: some View {

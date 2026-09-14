@@ -84,18 +84,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
-    /// Captures the popover's own window (no screen-recording permission needed for our own windows)
-    /// in light and dark appearance, giving the real material and colours. Verification only.
+    /// Captures the popover content in light and dark appearance (verification only). The SwiftUI view
+    /// draws an opaque window background while `snapshotBackground` is set, so the PNG is readable alone.
     private func snapshotPopover(into dir: URL, completion: @escaping ([String]) -> Void) {
-        guard popover.isShown, let view = popover.contentViewController?.view, let window = view.window else {
-            completion([]); return
-        }
+        guard popover.isShown, let view = popover.contentViewController?.view else { completion([]); return }
         let original = popover.appearance
         var written: [String] = []
+        model.snapshotBackground = true
         func capture(_ name: String) {
-            let id = CGWindowID(window.windowNumber)
-            guard let cg = CGWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution]) else { return }
-            let rep = NSBitmapImageRep(cgImage: cg)
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
             guard let png = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else { return }
             let url = dir.appendingPathComponent("popover-\(name).png")
             if (try? png.write(to: url)) != nil { written.append(url.path) }
@@ -107,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 capture("dark")
                 self?.popover.appearance = original
+                self?.model.snapshotBackground = false
                 completion(written)
             }
         }

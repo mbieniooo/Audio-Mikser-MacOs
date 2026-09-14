@@ -30,6 +30,8 @@ public final class MixerModel {
     public private(set) var errors: [AppGroupKey: String] = [:]
     public private(set) var isRunning = false
     public private(set) var startError: String?
+    /// Verification only: the popover draws an opaque window background while a snapshot is taken.
+    public var snapshotBackground = false
 
     @ObservationIgnored public let settings: Settings
     @ObservationIgnored private let registryQueue = DispatchQueue(label: "com.mieszko.mikser.registry")
