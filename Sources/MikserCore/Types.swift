@@ -17,8 +17,11 @@ public struct AudioProcess: Equatable, Sendable {
     public let pid: pid_t
     public let bundleID: String?
     public let isRunningOutput: Bool
-    public init(objectID: AudioObjectID, pid: pid_t, bundleID: String?, isRunningOutput: Bool) {
+    /// Devices the process currently does IO with (kAudioProcessPropertyDevices).
+    public let devices: [AudioObjectID]
+    public init(objectID: AudioObjectID, pid: pid_t, bundleID: String?, isRunningOutput: Bool, devices: [AudioObjectID] = []) {
         self.objectID = objectID; self.pid = pid; self.bundleID = bundleID; self.isRunningOutput = isRunningOutput
+        self.devices = devices
     }
 }
 
@@ -40,11 +43,21 @@ public struct AudioApp: Identifiable, Equatable {
     public var pids: [pid_t] { processes.map { $0.pid } }
 }
 
-/// The user's setting for one app. level is 0...1; 1 and not muted means "untouched, no tap".
+/// The user's setting for one app. level is 0...1 in steps of 0.01 (what the slider shows); 1 and not
+/// muted means "untouched, no tap". Quantizing keeps the display and `isFull` in agreement.
 public struct AppLevel: Codable, Equatable, Sendable {
-    public var level: Double
+    public var level: Double { didSet { level = Self.quantize(level) } }
     public var muted: Bool
-    public init(level: Double, muted: Bool) { self.level = min(max(level, 0), 1); self.muted = muted }
+    public init(level: Double, muted: Bool) { self.level = Self.quantize(level); self.muted = muted }
+    public static func quantize(_ raw: Double) -> Double {
+        guard raw.isFinite else { return 1 }
+        return (min(max(raw, 0), 1) * 100).rounded() / 100
+    }
+    private enum CodingKeys: String, CodingKey { case level, muted }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(level: try c.decode(Double.self, forKey: .level), muted: try c.decode(Bool.self, forKey: .muted))
+    }
     public static let full = AppLevel(level: 1, muted: false)
     public var isFull: Bool { level >= 1 && !muted }
     /// The gain actually applied: 0 when muted.

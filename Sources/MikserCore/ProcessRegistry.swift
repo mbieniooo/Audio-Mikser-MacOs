@@ -18,6 +18,7 @@ public final class ProcessRegistry {
     private var processListeners: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
     private var identityCache: [pid_t: ResolvedIdentity] = [:]
     private var started = false
+    private let queueKey = DispatchSpecificKey<Bool>()
 
     /// Called on `queue` whenever the grouped rows change (and once after start).
     public var onChange: (([AudioApp]) -> Void)?
@@ -25,9 +26,15 @@ public final class ProcessRegistry {
 
     public init(queue: DispatchQueue) {
         self.queue = queue
+        queue.setSpecific(key: queueKey, value: true)
     }
 
     deinit { stop() }
+
+    /// Runs `body` on the registry queue, synchronously, without deadlocking if already on it.
+    private func onQueue(_ body: () -> Void) {
+        if DispatchQueue.getSpecific(key: queueKey) == true { body() } else { queue.sync(execute: body) }
+    }
 
     public func start() throws {
         var address = Self.processListAddress
@@ -41,7 +48,9 @@ public final class ProcessRegistry {
         queue.async { [weak self] in self?.refreshLocked(force: true) }
     }
 
-    public func stop() {
+    public func stop() { onQueue { stopLocked() } }
+
+    private func stopLocked() {
         if let block = systemListener {
             var address = Self.processListAddress
             AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, queue, block)
@@ -72,7 +81,8 @@ public final class ProcessRegistry {
             processes.append(AudioProcess(objectID: object,
                                           pid: pid,
                                           bundleID: Self.readBundleID(object),
-                                          isRunningOutput: Self.readIsRunningOutput(object)))
+                                          isRunningOutput: Self.readIsRunningOutput(object),
+                                          devices: Self.readDevices(object)))
         }
         syncProcessListeners(current: Set(objects))
         let livePIDs = Set(processes.map { $0.pid })
@@ -152,6 +162,10 @@ public final class ProcessRegistry {
         }
         guard status == noErr, let string = value?.takeRetainedValue() as String? else { return nil }
         return string.isEmpty ? nil : string
+    }
+
+    static func readDevices(_ object: AudioObjectID) -> [AudioObjectID] {
+        HAL.readObjectIDs(object, kAudioProcessPropertyDevices) ?? []
     }
 
     static func readIsRunningOutput(_ object: AudioObjectID) -> Bool {

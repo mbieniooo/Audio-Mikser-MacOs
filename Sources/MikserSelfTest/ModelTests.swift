@@ -1,5 +1,5 @@
 import Foundation
-@testable import MikserCore
+import MikserCore
 
 func modelSuite(_ h: Harness) {
     h.suite("AppTap initial state") { h in

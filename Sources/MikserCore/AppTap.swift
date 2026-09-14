@@ -16,7 +16,7 @@ public enum TapError: Error, CustomStringConvertible {
 /// One app's scaling path: a process tap that mutes the app's direct output, a private aggregate
 /// device on the current default output, and an IO proc that re-renders the tapped audio with a
 /// ramped gain. Teardown restores the app's normal audio.
-final class AppTap {
+public final class AppTap {
     let key: AppGroupKey
     /// The app's process objects as the registry reported them (used to detect process-set changes).
     let requestedObjectIDs: [AudioObjectID]
@@ -28,7 +28,6 @@ final class AppTap {
     private(set) var tapID = AudioObjectID(kAudioObjectUnknown)
     private(set) var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
-    private let ioQueue: DispatchQueue
     private(set) var sampleRate: Double = 0
     private(set) var bufferFrames: UInt32 = 0
     private(set) var isFloat32 = true
@@ -37,12 +36,13 @@ final class AppTap {
     // Shared with the real-time thread. Aligned 32/64-bit loads and stores are atomic on Apple
     // silicon; the IO block only ever sees these raw pointers, never `self`.
     // floats: 0 target, 1 current, 2 peakIn, 3 peakOut, 4 ramp
-    // counters: 0 callbacks, 1 last host time, 2 first host time, 3 last host time with signal above -80 dB.
+    // counters: 0 callbacks, 1 last host time, 2 first host time, 3 last host time with signal
+    //           above -80 dB, 4 host time of the last target change (control side only).
     private let floats: UnsafeMutablePointer<Float>
     private let counters: UnsafeMutablePointer<UInt64>
 
-    init(key: AppGroupKey, requestedObjectIDs: [AudioObjectID], processObjectIDs: [AudioObjectID],
-         outputDeviceID: AudioObjectID, outputUID: String, target: Float) {
+    public init(key: AppGroupKey, requestedObjectIDs: [AudioObjectID], processObjectIDs: [AudioObjectID],
+                outputDeviceID: AudioObjectID, outputUID: String, target: Float) {
         self.key = key
         self.requestedObjectIDs = requestedObjectIDs
         self.processObjectIDs = processObjectIDs
@@ -53,9 +53,8 @@ final class AppTap {
         floats[0] = max(0, min(1, target))
         // A new tap is a new path: start at the target so a muted app never leaks its first 30 ms.
         floats[1] = floats[0]
-        counters = .allocate(capacity: 4)
-        counters.initialize(repeating: 0, count: 4)
-        ioQueue = DispatchQueue(label: "com.mieszko.mikser.io", qos: .userInteractive)
+        counters = .allocate(capacity: 5)
+        counters.initialize(repeating: 0, count: 5)
     }
 
     deinit {
@@ -64,19 +63,30 @@ final class AppTap {
         counters.deallocate()
     }
 
-    var target: Float {
+    public var target: Float {
         get { floats[0] }
-        set { floats[0] = max(0, min(1, newValue)) }
+        set {
+            floats[0] = max(0, min(1, newValue))
+            counters[4] = mach_absolute_time()
+        }
     }
-    var currentGain: Float { floats[1] }
+    public var currentGain: Float { floats[1] }
     var peakIn: Float { floats[2] }
     var peakOut: Float { floats[3] }
     var callbacks: UInt64 { counters[0] }
     var lastCallbackHostTime: UInt64 { counters[1] }
     var firstCallbackHostTime: UInt64 { counters[2] }
     var lastSignalHostTime: UInt64 { counters[3] }
+    var targetChangedHostTime: UInt64 { counters[4] }
     var isActive: Bool { procID != nil }
     var isAlive: Bool { aggregateID != kAudioObjectUnknown && HAL.isAlive(aggregateID) }
+
+    /// True when the tap carried signal above -80 dB within the last `ms` milliseconds.
+    public func hadSignal(withinMs ms: Double, now: UInt64 = mach_absolute_time()) -> Bool {
+        let last = lastSignalHostTime
+        guard last != 0 else { return false }
+        return HAL.msBetween(last, now) < ms
+    }
 
     func activate() throws {
         let description = CATapDescription(stereoMixdownOfProcesses: processObjectIDs)
@@ -135,7 +145,8 @@ final class AppTap {
 
         let floats = self.floats, counters = self.counters, float32 = isFloat32
         var proc: AudioDeviceIOProcID?
-        let status = AudioDeviceCreateIOProcIDWithBlock(&proc, aggregateID, ioQueue) { _, input, _, output, _ in
+        // A nil queue runs the block on the HAL's own IO thread: no dispatch hop, no queue lock.
+        let status = AudioDeviceCreateIOProcIDWithBlock(&proc, aggregateID, nil) { _, input, _, output, _ in
             AppTap.render(input: input, output: output, floats: floats, counters: counters, isFloat32: float32)
         }
         guard status == noErr, let created = proc else { teardown(); throw TapError.coreAudio(status, "creating the IO proc") }

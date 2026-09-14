@@ -42,5 +42,6 @@ groupingSuite(h)
 gainSuite(h)
 settingsSuite(h)
 modelSuite(h)
+reviewFixSuite(h)
 
 h.finish()

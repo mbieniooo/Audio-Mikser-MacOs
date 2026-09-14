@@ -42,8 +42,11 @@ public enum GainMath {
                 let y = sum / Float(ic) * g
                 output[ob] = y; pout = max(pout, abs(y))
             } else {
+                // Wider output: a mono input feeds every channel; a multi-channel input feeds its own
+                // channels and leaves the rest silent (never right into centre, LFE or surrounds).
                 for c in 0..<oc {
-                    let x = input[ib + min(c, ic - 1)], y = x * g
+                    let x: Float = ic == 1 ? input[ib] : (c < ic ? input[ib + c] : 0)
+                    let y = x * g
                     output[ob + c] = y
                     pin = max(pin, abs(x)); pout = max(pout, abs(y))
                 }
@@ -75,7 +78,9 @@ public enum GainMath {
             for f in 0..<frames {
                 g += (target - g) * ramp
                 for c in 0..<oc {
-                    guard let src = input[min(c, inCount - 1)].mData?.assumingMemoryBound(to: Float.self) else { continue }
+                    let source = inCount == 1 ? 0 : c
+                    if source >= inCount { out[f * oc + c] = 0; continue }
+                    guard let src = input[source].mData?.assumingMemoryBound(to: Float.self) else { continue }
                     let x = src[f], y = x * g
                     out[f * oc + c] = y
                     pin = max(pin, abs(x)); pout = max(pout, abs(y))
@@ -97,7 +102,8 @@ public enum GainMath {
                 g += (target - g) * ramp
                 for c in 0..<outCount {
                     guard let out = output[c].mData?.assumingMemoryBound(to: Float.self) else { continue }
-                    let x = src[f * ic + min(c, ic - 1)], y = x * g
+                    let x: Float = ic == 1 ? src[f] : (c < ic ? src[f * ic + c] : 0)
+                    let y = x * g
                     out[f] = y
                     pin = max(pin, abs(x)); pout = max(pout, abs(y))
                 }

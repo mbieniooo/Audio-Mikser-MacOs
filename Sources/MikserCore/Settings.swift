@@ -17,7 +17,8 @@ public final class Settings {
             levels = [:]
             return
         }
-        levels = decoded
+        // Stored values are re-quantized (older builds saved raw slider values) and full entries dropped.
+        levels = decoded.filter { !$0.value.isFull }
     }
 
     public func level(for key: AppGroupKey) -> AppLevel { levels[key.raw] ?? .full }

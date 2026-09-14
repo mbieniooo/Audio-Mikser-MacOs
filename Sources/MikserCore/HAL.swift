@@ -98,6 +98,17 @@ public enum HAL {
         (readObjectIDs(system, kAudioHardwarePropertyDevices) ?? []).compactMap { deviceName($0) }.filter { $0.hasPrefix("Mikser ") }
     }
 
+    private static let hostTicksToMs: Double = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return Double(info.numer) / Double(info.denom) / 1_000_000
+    }()
+
+    /// Milliseconds between two mach host times (0 if `from` is 0).
+    public static func msBetween(_ from: UInt64, _ to: UInt64) -> Double {
+        from == 0 ? -1 : Double(to &- from) * hostTicksToMs
+    }
+
     public static func fourCC(_ status: OSStatus) -> String {
         let bytes = withUnsafeBytes(of: status.bigEndian) { Array($0) }
         let printable = bytes.allSatisfy { (32...126).contains($0) }

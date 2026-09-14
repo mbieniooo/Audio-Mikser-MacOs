@@ -92,15 +92,16 @@ public final class MixerModel {
     public func app(matching text: String) -> AudioApp? {
         let t = text.trimmingCharacters(in: .whitespaces).lowercased()
         guard !t.isEmpty else { return nil }
+        // Exact matches may name anything; a name prefix only ever picks a user-facing app, so "a"
+        // cannot land on assistantd.
         return allApps.first { $0.id.raw.lowercased() == t }
             ?? allApps.first { ($0.bundleID ?? "").lowercased() == t }
             ?? allApps.first { $0.displayName.lowercased() == t }
-            ?? allApps.first { $0.displayName.lowercased().hasPrefix(t) }
+            ?? allApps.first { $0.isUserFacing && $0.displayName.lowercased().hasPrefix(t) }
     }
 
     public func setLevel(_ level: Double, for key: AppGroupKey) {
-        var current = settings.level(for: key)
-        current.level = min(max(level, 0), 1)
+        let current = AppLevel(level: level, muted: settings.level(for: key).muted)
         settings.set(current, for: key)
         push(current, key)
     }
@@ -163,13 +164,14 @@ public final class MixerModel {
     // MARK: internals
 
     /// Test hook: replaces the registry snapshot without touching the engine.
-    func _setAppsForTesting(_ apps: [AudioApp], rebuild: Bool) {
+    public func _setAppsForTesting(_ apps: [AudioApp], rebuild: Bool) {
         allApps = apps
         if rebuild { rebuildRows() }
     }
 
     private func push(_ level: AppLevel, _ key: AppGroupKey) {
-        if let app = app(for: key) { engine.apply(level, to: app) }
+        if level.isFull { errors[key] = nil }
+        if let app = app(for: key) { engine.apply(level, to: app, userInitiated: true) }
         rebuildRows()
     }
 
@@ -178,8 +180,14 @@ public final class MixerModel {
         engine.processesChanged(apps)
         for app in apps {
             let saved = settings.level(for: app.id)
-            if !saved.isFull { engine.apply(saved, to: app) }
+            if !saved.isFull { engine.apply(saved, to: app, userInitiated: false) }
         }
+        rebuildRows()
+    }
+
+    /// Test hook: records an error for a row as the engine's fail safe would.
+    public func _setErrorForTesting(_ message: String?, for key: AppGroupKey) {
+        errors[key] = message
         rebuildRows()
     }
 

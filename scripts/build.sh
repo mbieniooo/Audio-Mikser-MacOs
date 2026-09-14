@@ -15,6 +15,7 @@ if ! grep -q "\"$IDENTITY\"" <<<"$IDS"; then
 fi
 
 if [[ "$CONFIG" == "release" ]]; then swift build -c release; else swift build; fi
+".build/$CONFIG/mikser-selftest" > /dev/null || { echo "self-test failed in $CONFIG"; ".build/$CONFIG/mikser-selftest" | grep FAIL; exit 1; }
 
 APP="build/Mikser.app"
 rm -rf "$APP"

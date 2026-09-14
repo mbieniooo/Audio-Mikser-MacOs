@@ -77,6 +77,7 @@ public final class ControlChannel {
                 return ["key": app.id.raw, "name": app.displayName, "bundle": app.bundleID ?? "",
                         "pids": app.pids.map { Int($0) }, "objects": app.processObjectIDs.map { Int($0) },
                         "playing": app.isPlaying, "userFacing": app.isUserFacing,
+                        "devices": Array(Set(app.processes.flatMap { $0.devices })).sorted().map { HAL.deviceName($0) ?? "\($0)" },
                         "level": level.level, "muted": level.muted,
                         "scaled": model.activeKeys.contains(app.id), "error": model.errors[app.id] ?? ""]
             }
@@ -89,8 +90,11 @@ public final class ControlChannel {
             let current = HAL.defaultOutputDevice()
             reply["devices"] = devices.map { ["id": Int($0.id), "uid": $0.uid, "name": $0.name, "default": $0.id == current] }
             if args.first?.lowercased() == "set" {
-                let wanted = args.dropFirst().joined(separator: " ").lowercased()
-                if let dev = devices.first(where: { $0.name.lowercased() == wanted })
+                let wanted = args.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces).lowercased()
+                if wanted.isEmpty {
+                    reply["ok"] = false
+                    reply["message"] = "output set needs a device name"
+                } else if let dev = devices.first(where: { $0.name.lowercased() == wanted })
                     ?? devices.first(where: { $0.name.lowercased().hasPrefix(wanted) }) {
                     let status = HAL.setDefaultOutputDevice(dev.id)
                     reply["ok"] = status == noErr
@@ -150,12 +154,14 @@ public final class ControlChannel {
             "outputUID": s.outputUID ?? "", "outputName": s.outputName ?? "", "sampleRate": s.sampleRate,
             "rebuilds": s.rebuilds, "transientRetries": s.transientRetries, "failSafes": s.failSafes, "lastError": s.lastError ?? "",
             "wanted": s.wantedKeys.map { $0.raw },
+            "suspended": s.suspendedKeys.map { $0.raw },
             "globalTaps": HAL.tapList().count,
             "mikserDevices": HAL.mikserDeviceNames(),
             "errors": Dictionary(uniqueKeysWithValues: s.errors.map { ($0.key.raw, $0.value) }),
             "taps": s.taps.map { t -> [String: Any] in
                 ["key": t.key.raw, "target": t.target, "current": t.current, "peakIn": t.peakIn, "peakOut": t.peakOut,
-                 "callbacks": t.callbacks, "callbackAgeMs": t.callbackAgeMs, "startDelayMs": t.startDelayMs, "ageMs": t.ageMs, "sampleRate": t.sampleRate,
+                 "callbacks": t.callbacks, "callbackAgeMs": t.callbackAgeMs, "startDelayMs": t.startDelayMs, "ageMs": t.ageMs,
+                 "sinceTargetChangeMs": t.sinceTargetChangeMs, "sampleRate": t.sampleRate,
                  "bufferFrames": t.bufferFrames, "outputUID": t.outputUID, "objects": t.processObjectIDs.map { Int($0) },
                  "float32": t.isFloat32, "alive": t.alive]
             },

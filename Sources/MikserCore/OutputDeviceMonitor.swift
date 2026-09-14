@@ -10,6 +10,7 @@ public final class OutputDeviceMonitor {
     private var listenedDevice = AudioObjectID(kAudioObjectUnknown)
     private var wakeObserver: NSObjectProtocol?
     private var started = false
+    private let queueKey = DispatchSpecificKey<Bool>()
 
     public private(set) var deviceID = AudioObjectID(kAudioObjectUnknown)
     public private(set) var deviceUID: String?
@@ -18,7 +19,10 @@ public final class OutputDeviceMonitor {
     /// Called on `queue` with a short reason whenever the output changed, its rate changed, or the Mac woke.
     public var onChange: ((String) -> Void)?
 
-    public init(queue: DispatchQueue) { self.queue = queue }
+    public init(queue: DispatchQueue) {
+        self.queue = queue
+        queue.setSpecific(key: queueKey, value: true)
+    }
     deinit { stop() }
 
     public func start() throws {
@@ -38,6 +42,10 @@ public final class OutputDeviceMonitor {
     }
 
     public func stop() {
+        if DispatchQueue.getSpecific(key: queueKey) == true { stopLocked() } else { queue.sync { stopLocked() } }
+    }
+
+    private func stopLocked() {
         if let block = defaultListener {
             var addr = HAL.address(kAudioHardwarePropertyDefaultOutputDevice)
             AudioObjectRemovePropertyListenerBlock(HAL.system, &addr, queue, block)

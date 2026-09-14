@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var clickMonitor: Any?
     private var openRequestedAt: CFAbsoluteTime = 0
     private var lastOpenMs: Double?
+    private var closedAt: CFAbsoluteTime = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -65,7 +66,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func togglePopover() {
-        if popover.isShown { closePopover() } else { openPopover() }
+        if popover.isShown { closePopover(); return }
+        // A click on the icon while the popover is open closes it (transient behaviour) before this
+        // action arrives; without this guard the same click would reopen it at once.
+        if CFAbsoluteTimeGetCurrent() - closedAt < 0.3 { return }
+        openPopover()
     }
 
     private func openPopover() {
@@ -75,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.freezeOrder()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        guard popover.isShown else { model.unfreezeOrder(); return }
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor [weak self] in self?.closePopover() }
         }
@@ -120,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
+        closedAt = CFAbsoluteTimeGetCurrent()
         if let monitor = clickMonitor { NSEvent.removeMonitor(monitor); clickMonitor = nil }
         model.unfreezeOrder()
     }
