@@ -18,8 +18,8 @@ public final class ControlChannel {
     public var onQuit: (() -> Void)?
     /// open → true / close → false; returns the last measured popover open time in ms, if any.
     public var popoverHandler: ((Bool) -> Double?)?
-    /// Renders the open popover content to PNG files in the given directory; returns the paths written.
-    public var snapshotHandler: ((URL) -> [String])?
+    /// Captures the open popover to PNG files in the given directory; calls back with the paths written.
+    public var snapshotHandler: ((URL, @escaping ([String]) -> Void) -> Void)?
 
     public init(model: MixerModel) { self.model = model }
 
@@ -125,9 +125,12 @@ public final class ControlChannel {
                 guard let self else { return }
                 var late = reply
                 let dir = Self.replyURL.deletingLastPathComponent()
-                late["files"] = self.snapshotHandler?(dir) ?? []
                 late["popoverOpenMs"] = self.popoverHandler?(true) ?? -1
-                self.writeReply(late)
+                guard let handler = self.snapshotHandler else { late["files"] = []; self.writeReply(late); return }
+                handler(dir) { files in
+                    late["files"] = files
+                    self.writeReply(late)
+                }
             }
             return
         case "quit":

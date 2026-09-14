@@ -39,7 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             if !open, self.popover.isShown { self.closePopover() }
             return self.lastOpenMs
         }
-        channel.snapshotHandler = { [weak self] dir in self?.snapshotPopover(into: dir) ?? [] }
+        channel.snapshotHandler = { [weak self] dir, done in
+            if let self { self.snapshotPopover(into: dir, completion: done) } else { done([]) }
+        }
         channel.install()
         control = channel
         NSLog("Mikser started (running=\(model.isRunning) error=\(model.startError ?? "none"))")
@@ -82,32 +84,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
-    /// Draws the popover content in light and dark appearance to PNG files (no screen-recording permission needed).
-    private func snapshotPopover(into dir: URL) -> [String] {
-        guard popover.isShown, let view = popover.contentViewController?.view else { return [] }
-        var written: [String] = []
+    /// Captures the popover's own window (no screen-recording permission needed for our own windows)
+    /// in light and dark appearance, giving the real material and colours. Verification only.
+    private func snapshotPopover(into dir: URL, completion: @escaping ([String]) -> Void) {
+        guard popover.isShown, let view = popover.contentViewController?.view, let window = view.window else {
+            completion([]); return
+        }
         let original = popover.appearance
-        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
-            popover.appearance = NSAppearance(named: appearance)
-            view.layoutSubtreeIfNeeded()
-            view.displayIfNeeded()
-            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
-            view.cacheDisplay(in: view.bounds, to: rep)
-            // The popover material supplies the real background; composite over the window colour so
-            // the PNG is readable on its own in both appearances.
-            let composed = NSImage(size: view.bounds.size)
-            composed.lockFocus()
-            (name == "dark" ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.94, alpha: 1)).setFill()
-            NSRect(origin: .zero, size: view.bounds.size).fill()
-            rep.draw(in: NSRect(origin: .zero, size: view.bounds.size))
-            composed.unlockFocus()
-            guard let tiff = composed.tiffRepresentation, let outRep = NSBitmapImageRep(data: tiff),
-                  let png = outRep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else { continue }
+        var written: [String] = []
+        func capture(_ name: String) {
+            let id = CGWindowID(window.windowNumber)
+            guard let cg = CGWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution]) else { return }
+            let rep = NSBitmapImageRep(cgImage: cg)
+            guard let png = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else { return }
             let url = dir.appendingPathComponent("popover-\(name).png")
             if (try? png.write(to: url)) != nil { written.append(url.path) }
         }
-        popover.appearance = original
-        return written
+        popover.appearance = NSAppearance(named: .aqua)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            capture("light")
+            self?.popover.appearance = NSAppearance(named: .darkAqua)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                capture("dark")
+                self?.popover.appearance = original
+                completion(written)
+            }
+        }
     }
 
     func popoverDidShow(_ notification: Notification) {
