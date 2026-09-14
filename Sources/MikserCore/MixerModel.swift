@@ -162,6 +162,12 @@ public final class MixerModel {
 
     // MARK: internals
 
+    /// Test hook: replaces the registry snapshot without touching the engine.
+    func _setAppsForTesting(_ apps: [AudioApp], rebuild: Bool) {
+        allApps = apps
+        if rebuild { rebuildRows() }
+    }
+
     private func push(_ level: AppLevel, _ key: AppGroupKey) {
         if let app = app(for: key) { engine.apply(level, to: app) }
         rebuildRows()
