@@ -29,8 +29,11 @@ public struct AudioApp: Identifiable, Equatable {
     public let bundleID: String?
     public let processes: [AudioProcess]
     public let icon: NSImage?
-    public init(id: AppGroupKey, displayName: String, bundleID: String?, processes: [AudioProcess], icon: NSImage?) {
+    /// True for apps a person can see (Dock or menu bar apps); false for daemons and agents.
+    public let isUserFacing: Bool
+    public init(id: AppGroupKey, displayName: String, bundleID: String?, processes: [AudioProcess], icon: NSImage?, isUserFacing: Bool = true) {
         self.id = id; self.displayName = displayName; self.bundleID = bundleID; self.processes = processes; self.icon = icon
+        self.isUserFacing = isUserFacing
     }
     public var isPlaying: Bool { processes.contains { $0.isRunningOutput } }
     public var processObjectIDs: [AudioObjectID] { processes.map { $0.objectID } }

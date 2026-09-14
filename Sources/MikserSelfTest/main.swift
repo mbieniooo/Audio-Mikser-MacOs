@@ -1,6 +1,27 @@
 import Foundation
 import MikserCore
 
+let args = CommandLine.arguments
+
+if args.contains("--live-registry") {
+    let queue = DispatchQueue(label: "mikser.selftest.registry")
+    let registry = ProcessRegistry(queue: queue)
+    let done = DispatchSemaphore(value: 0)
+    var snapshot: [AudioApp] = []
+    registry.onChange = { rows in snapshot = rows }
+    do { try registry.start() } catch { print("start failed: \(error)"); exit(1) }
+    _ = done.wait(timeout: .now() + 2)
+    queue.sync {
+        for app in snapshot {
+            let mark = (app.isPlaying ? "P" : " ") + (app.isUserFacing ? "U" : " ")
+            print("\(mark) \(app.displayName) [\(app.id.raw)] pids=\(app.pids) bundle=\(app.bundleID ?? "-")")
+        }
+        print("\(snapshot.count) rows")
+    }
+    registry.stop()
+    exit(0)
+}
+
 let h = Harness()
 
 h.suite("Types") { h in
@@ -9,5 +30,7 @@ h.suite("Types") { h in
     h.check("muted is not full", !AppLevel(level: 1, muted: true).isFull)
     h.check("muted gain is 0", AppLevel(level: 0.5, muted: true).effectiveGain == 0)
 }
+
+groupingSuite(h)
 
 h.finish()
