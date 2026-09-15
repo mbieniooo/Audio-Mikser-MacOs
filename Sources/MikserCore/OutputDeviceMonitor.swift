@@ -26,19 +26,24 @@ public final class OutputDeviceMonitor {
     deinit { stop() }
 
     public func start() throws {
-        var addr = HAL.address(kAudioHardwarePropertyDefaultOutputDevice)
-        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.refresh(reason: "default output changed") }
-        let status = AudioObjectAddPropertyListenerBlock(HAL.system, &addr, queue, block)
-        guard status == noErr else { throw RegistryError.coreAudio(status, "adding the default output listener") }
-        defaultListener = block
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { [weak self] _ in
-            guard let self else { return }
-            self.queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.refresh(reason: "wake", always: true) }
+        var failure: RegistryError?
+        let body = {
+            var addr = HAL.address(kAudioHardwarePropertyDefaultOutputDevice)
+            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.refresh(reason: "default output changed") }
+            let status = AudioObjectAddPropertyListenerBlock(HAL.system, &addr, self.queue, block)
+            guard status == noErr else { failure = RegistryError.coreAudio(status, "adding the default output listener"); return }
+            self.defaultListener = block
+            self.wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { [weak self] _ in
+                guard let self else { return }
+                self.queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.refresh(reason: "wake", always: true) }
+            }
+            self.started = true
+            self.readDevice()
+            self.relisten()
         }
-        started = true
-        readDevice()
-        relisten()
+        if DispatchQueue.getSpecific(key: queueKey) == true { body() } else { queue.sync(execute: body) }
+        if let failure { throw failure }
     }
 
     public func stop() {

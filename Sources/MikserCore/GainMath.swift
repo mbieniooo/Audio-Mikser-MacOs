@@ -18,8 +18,21 @@ public enum GainMath {
         return Float(1 - exp(-1 / (seconds * sampleRate)))
     }
 
-    /// Frame-wise ramped gain from one interleaved buffer into another, adapting channel counts:
-    /// equal layouts copy 1:1, a mono output averages the frame, a wider output repeats the last input channel.
+    /// Channel rule shared by every layout: a mono input feeds every output channel, a mono output
+    /// averages the input, otherwise channel c gets input channel c and channels past the input stay
+    /// silent (never right into centre, LFE or surrounds).
+    @inline(__always)
+    static func mapped(_ read: (Int) -> Float, inChannels ic: Int, outChannel c: Int, outChannels oc: Int) -> Float {
+        if ic == 1 { return read(0) }
+        if oc == 1 {
+            var sum: Float = 0
+            for k in 0..<ic { sum += read(k) }
+            return sum / Float(ic)
+        }
+        return c < ic ? read(c) : 0
+    }
+
+    /// Frame-wise ramped gain from one interleaved buffer into another, adapting channel counts.
     @inline(__always)
     public static func mixInterleaved(input: UnsafePointer<Float>, inChannels: Int,
                                       output: UnsafeMutablePointer<Float>, outChannels: Int,
@@ -36,19 +49,13 @@ public enum GainMath {
                     output[ob + c] = y
                     pin = max(pin, abs(x)); pout = max(pout, abs(y))
                 }
-            } else if oc == 1 {
-                var sum: Float = 0
-                for c in 0..<ic { let x = input[ib + c]; sum += x; pin = max(pin, abs(x)) }
-                let y = sum / Float(ic) * g
-                output[ob] = y; pout = max(pout, abs(y))
             } else {
-                // Wider output: a mono input feeds every channel; a multi-channel input feeds its own
-                // channels and leaves the rest silent (never right into centre, LFE or surrounds).
+                for k in 0..<ic { pin = max(pin, abs(input[ib + k])) }
                 for c in 0..<oc {
-                    let x: Float = ic == 1 ? input[ib] : (c < ic ? input[ib + c] : 0)
+                    let x = mapped({ input[ib + $0] }, inChannels: ic, outChannel: c, outChannels: oc)
                     let y = x * g
                     output[ob + c] = y
-                    pin = max(pin, abs(x)); pout = max(pout, abs(y))
+                    pout = max(pout, abs(y))
                 }
             }
         }
@@ -56,8 +63,9 @@ public enum GainMath {
         return Result(gain: g, peakIn: pin, peakOut: pout)
     }
 
-    /// Whole buffer lists. Handles same-shape lists, planar input into an interleaved output,
-    /// interleaved input into planar outputs, and anything else index-matched. Unwritten output is zeroed.
+    /// Whole buffer lists, any layout: interleaved or planar on either side, any channel counts.
+    /// Identical interleaved shapes take the fast path; everything else goes through one general
+    /// frame loop with the channel rule above. Unwritten output is zeroed.
     public static func mixLists(input: UnsafeMutableAudioBufferListPointer,
                                 output: UnsafeMutableAudioBufferListPointer,
                                 gain start: Float, target: Float, ramp: Float) -> Result {
@@ -67,69 +75,70 @@ public enum GainMath {
 
         let inPlanar = inCount > 1 && input.allSatisfy { $0.mNumberChannels == 1 }
         let outPlanar = outCount > 1 && output.allSatisfy { $0.mNumberChannels == 1 }
+        let ic = max(1, inPlanar ? inCount : Int(input[0].mNumberChannels))
+        let oc = max(1, outPlanar ? outCount : Int(output[0].mNumberChannels))
 
-        if inPlanar, outCount == 1, output[0].mNumberChannels > 1 {
-            guard let out = output[0].mData?.assumingMemoryBound(to: Float.self) else { return Result(gain: start) }
-            let oc = Int(output[0].mNumberChannels)
-            var frames = sampleCount(output[0]) / oc
-            for b in input { frames = min(frames, sampleCount(b)) }
-            var g = start
-            var pin: Float = 0, pout: Float = 0
-            for f in 0..<frames {
-                g += (target - g) * ramp
-                for c in 0..<oc {
-                    let source = inCount == 1 ? 0 : c
-                    if source >= inCount { out[f * oc + c] = 0; continue }
-                    guard let src = input[source].mData?.assumingMemoryBound(to: Float.self) else { continue }
-                    let x = src[f], y = x * g
-                    out[f * oc + c] = y
-                    pin = max(pin, abs(x)); pout = max(pout, abs(y))
-                }
-            }
-            zeroTail(output[0], from: frames * oc)
-            if abs(g - target) < 1e-4 { g = target } // Float32 stalls ~3e-5 short; 1e-4 is -80 dB
-            return Result(gain: g, peakIn: pin, peakOut: pout)
-        }
-
-        if outPlanar, inCount == 1, input[0].mNumberChannels > 1 {
-            guard let src = input[0].mData?.assumingMemoryBound(to: Float.self) else { silence(output); return Result(gain: start) }
-            let ic = Int(input[0].mNumberChannels)
-            var frames = sampleCount(input[0]) / ic
-            for b in output { frames = min(frames, sampleCount(b)) }
-            var g = start
-            var pin: Float = 0, pout: Float = 0
-            for f in 0..<frames {
-                g += (target - g) * ramp
-                for c in 0..<outCount {
-                    guard let out = output[c].mData?.assumingMemoryBound(to: Float.self) else { continue }
-                    let x: Float = ic == 1 ? src[f] : (c < ic ? src[f * ic + c] : 0)
-                    let y = x * g
-                    out[f] = y
-                    pin = max(pin, abs(x)); pout = max(pout, abs(y))
-                }
-            }
-            for b in output { zeroTail(b, from: frames) }
-            if abs(g - target) < 1e-4 { g = target } // Float32 stalls ~3e-5 short; 1e-4 is -80 dB
-            return Result(gain: g, peakIn: pin, peakOut: pout)
-        }
-
-        var result = Result(gain: start)
-        for i in 0..<outCount {
-            let ob = output[i]
-            guard let out = ob.mData?.assumingMemoryBound(to: Float.self) else { continue }
-            guard i < inCount, let src = input[i].mData?.assumingMemoryBound(to: Float.self) else {
-                zeroTail(ob, from: 0); continue
-            }
-            let ic = max(1, Int(input[i].mNumberChannels)), oc = max(1, Int(ob.mNumberChannels))
-            let frames = min(sampleCount(input[i]) / ic, sampleCount(ob) / oc)
+        if !inPlanar, !outPlanar, inCount == 1, outCount == 1 {
+            guard let src = input[0].mData?.assumingMemoryBound(to: Float.self),
+                  let out = output[0].mData?.assumingMemoryBound(to: Float.self) else { silence(output); return Result(gain: start) }
+            let frames = min(sampleCount(input[0]) / ic, sampleCount(output[0]) / oc)
             let r = mixInterleaved(input: src, inChannels: ic, output: out, outChannels: oc,
                                    frames: frames, gain: start, target: target, ramp: ramp)
-            zeroTail(ob, from: frames * oc)
-            result.gain = r.gain
-            result.peakIn = max(result.peakIn, r.peakIn)
-            result.peakOut = max(result.peakOut, r.peakOut)
+            zeroTail(output[0], from: frames * oc)
+            return r
         }
-        return result
+
+        // General path. Frames = the shortest buffer on either side.
+        var frames = Int.max
+        if inPlanar { for b in input { frames = min(frames, sampleCount(b)) } } else { frames = min(frames, sampleCount(input[0]) / ic) }
+        if outPlanar { for b in output { frames = min(frames, sampleCount(b)) } } else { frames = min(frames, sampleCount(output[0]) / oc) }
+        if frames == Int.max { frames = 0 }
+
+        var g = start
+        var pin: Float = 0, pout: Float = 0
+        for f in 0..<frames {
+            g += (target - g) * ramp
+            @inline(__always) func read(_ k: Int) -> Float {
+                if inPlanar {
+                    guard let p = input[k].mData?.assumingMemoryBound(to: Float.self) else { return 0 }
+                    return p[f]
+                }
+                guard let p = input[0].mData?.assumingMemoryBound(to: Float.self) else { return 0 }
+                return p[f * ic + k]
+            }
+            for k in 0..<ic { pin = max(pin, abs(read(k))) }
+            for c in 0..<oc {
+                let y = mapped(read, inChannels: ic, outChannel: c, outChannels: oc) * g
+                pout = max(pout, abs(y))
+                if outPlanar {
+                    if let p = output[c].mData?.assumingMemoryBound(to: Float.self) { p[f] = y }
+                } else if let p = output[0].mData?.assumingMemoryBound(to: Float.self) {
+                    p[f * oc + c] = y
+                }
+            }
+        }
+        if outPlanar { for b in output { zeroTail(b, from: frames) } } else { zeroTail(output[0], from: frames * oc); for i in 1..<max(1, outCount) where i < outCount { zeroTail(output[i], from: 0) } }
+        if abs(g - target) < 1e-4 { g = target }
+        return Result(gain: g, peakIn: pin, peakOut: pout)
+    }
+
+    /// Runs the render code once on tiny buffers so lazy runtime work (type metadata, caches) happens
+    /// off the IO thread. Called before the first IO callback.
+    public static func warmUp() {
+        let list = AudioBufferList.allocate(maximumBuffers: 2)
+        defer { free(list.unsafeMutablePointer) }
+        var a: [Float] = [0.1, 0.2, 0.3, 0.4], b: [Float] = [0, 0, 0, 0]
+        a.withUnsafeMutableBufferPointer { ap in
+            b.withUnsafeMutableBufferPointer { bp in
+                list.count = 1
+                list[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: 16, mData: UnsafeMutableRawPointer(ap.baseAddress))
+                let out = AudioBufferList.allocate(maximumBuffers: 1)
+                defer { free(out.unsafeMutablePointer) }
+                out[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: 16, mData: UnsafeMutableRawPointer(bp.baseAddress))
+                _ = mixLists(input: list, output: out, gain: 1, target: 0.5, ramp: 0.5)
+                _ = mixLists(input: list, output: out, gain: 1, target: 0.5, ramp: 0.5)
+            }
+        }
     }
 
     /// Bit-exact copy for unexpected stream formats: no gain, no reinterpretation.

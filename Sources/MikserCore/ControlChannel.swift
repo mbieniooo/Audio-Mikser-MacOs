@@ -163,7 +163,7 @@ public final class ControlChannel {
                  "callbacks": t.callbacks, "callbackAgeMs": t.callbackAgeMs, "startDelayMs": t.startDelayMs, "ageMs": t.ageMs,
                  "sinceTargetChangeMs": t.sinceTargetChangeMs, "sampleRate": t.sampleRate,
                  "bufferFrames": t.bufferFrames, "outputUID": t.outputUID, "objects": t.processObjectIDs.map { Int($0) },
-                 "float32": t.isFloat32, "alive": t.alive]
+                 "alive": t.alive, "retiring": t.retiring]
             },
         ]
     }

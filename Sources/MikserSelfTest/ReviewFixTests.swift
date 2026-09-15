@@ -79,6 +79,60 @@ func reviewFixSuite(_ h: Harness) {
         }
     }
 
+    h.suite("Codex MED-5: planar/mono layouts use the same channel rule") { h in
+        let ramp = GainMath.rampCoefficient(sampleRate: 48_000)
+        let planar = BufferListBox([(1, 2), (1, 2)]); planar.fill(0, [1, 2]); planar.fill(1, [10, 20])
+        let mono = BufferListBox([(1, 2)])
+        _ = GainMath.mixLists(input: planar.list, output: mono.list, gain: 1, target: 1, ramp: ramp)
+        h.check("planar stereo into mono averages", mono.samples(0) == [5.5, 11], "\(mono.samples(0))")
+        let monoIn = BufferListBox([(1, 2)]); monoIn.fill(0, [0.3, 0.4])
+        let planarOut = BufferListBox([(1, 2), (1, 2)])
+        _ = GainMath.mixLists(input: monoIn.list, output: planarOut.list, gain: 1, target: 1, ramp: ramp)
+        h.check("mono into planar stereo duplicates", planarOut.samples(0) == [0.3, 0.4] && planarOut.samples(1) == [0.3, 0.4])
+        let planar4 = BufferListBox([(1, 2), (1, 2), (1, 2), (1, 2)]); for i in 0..<4 { planar4.fill(i) { _ in Float(i + 1) } }
+        let stereoOut = BufferListBox([(2, 4)])
+        _ = GainMath.mixLists(input: planar4.list, output: stereoOut.list, gain: 1, target: 1, ramp: ramp)
+        h.check("planar 4 into interleaved stereo keeps the first two channels", stereoOut.samples(0) == [1, 2, 1, 2], "\(stereoOut.samples(0))")
+        let quadIn = BufferListBox([(4, 8)]); quadIn.fill(0, [1, 2, 3, 4, 1, 2, 3, 4])
+        let monoOut = BufferListBox([(1, 2)])
+        _ = GainMath.mixLists(input: quadIn.list, output: monoOut.list, gain: 1, target: 1, ramp: ramp)
+        h.check("quad into mono averages all four", monoOut.samples(0) == [2.5, 2.5])
+        let peaks = GainMath.mixLists(input: planar.list, output: mono.list, gain: 0.5, target: 0.5, ramp: ramp)
+        h.check("peaks reflect input and output", peaks.peakIn == 20 && abs(peaks.peakOut - 5.5) < 1e-5, "\(peaks)")
+        GainMath.warmUp()
+        h.check("warmUp runs", true)
+    }
+
+    h.suite("Codex MED-1/2: liveness suspension clears on quit and retries when the app plays") { h in
+        let queue = DispatchQueue(label: "test.engine")
+        let monitor = OutputDeviceMonitor(queue: queue) // never started: no default output → builds fail fast
+        let engine = TapEngine(queue: queue, output: monitor)
+        let key = AppGroupKey.bundle("com.example.live")
+        func app(playing: Bool) -> AudioApp {
+            AudioApp(id: key, displayName: "Live", bundleID: "com.example.live",
+                     processes: [AudioProcess(objectID: 7, pid: 7, bundleID: nil, isRunningOutput: playing)], icon: nil)
+        }
+        engine.apply(AppLevel(level: 0.5, muted: false), to: app(playing: false))
+        var s = engine.snapshot()
+        h.check("build without an output device fails safe", s.errors[key] == "no default output device", "\(s.errors)")
+        engine._suspendForTesting(key)
+        h.check("suspended", engine.snapshot().suspendedKeys == [key])
+        engine.processesChanged([app(playing: false)])
+        h.check("a silent suspended app stays suspended", engine.snapshot().suspendedKeys == [key])
+        engine.processesChanged([app(playing: true)])
+        s = engine.snapshot()
+        h.check("a playing suspended app is retried (suspension lifted, attempt made)", s.suspendedKeys.isEmpty && s.failSafes >= 2, "suspended=\(s.suspendedKeys) failSafes=\(s.failSafes)")
+        engine._suspendForTesting(key); engine.processesChanged([app(playing: true)])
+        engine._suspendForTesting(key); engine.processesChanged([app(playing: true)])
+        h.check("retry budget exhausted: stays suspended", engine.snapshot().suspendedKeys == [key])
+        engine.processesChanged([])
+        s = engine.snapshot()
+        h.check("app quit clears suspension and wanted", s.suspendedKeys.isEmpty && s.wantedKeys.isEmpty, "\(s.suspendedKeys) \(s.wantedKeys)")
+        engine.apply(AppLevel(level: 0.5, muted: false), to: app(playing: true), userInitiated: false)
+        h.check("relaunched app gets its saved level applied again", engine.snapshot().wantedKeys == [key])
+        engine.stopAll()
+    }
+
     h.suite("M3: liveness decision") { h in
         h.check("playing app, no callbacks → dead", TapEngine.pathLooksDead(expectedSound: true, callbacks: 0))
         h.check("playing app with callbacks → fine", !TapEngine.pathLooksDead(expectedSound: true, callbacks: 3))

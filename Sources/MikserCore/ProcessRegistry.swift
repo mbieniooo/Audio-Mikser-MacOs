@@ -37,15 +37,19 @@ public final class ProcessRegistry {
     }
 
     public func start() throws {
-        var address = Self.processListAddress
-        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            self?.refreshLocked(force: false)
+        var failure: RegistryError?
+        onQueue {
+            var address = Self.processListAddress
+            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                self?.refreshLocked(force: false)
+            }
+            let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, queue, block)
+            guard status == noErr else { failure = RegistryError.coreAudio(status, "adding the process list listener"); return }
+            systemListener = block
+            started = true
+            refreshLocked(force: true)
         }
-        let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, queue, block)
-        guard status == noErr else { throw RegistryError.coreAudio(status, "adding the process list listener") }
-        systemListener = block
-        started = true
-        queue.async { [weak self] in self?.refreshLocked(force: true) }
+        if let failure { throw failure }
     }
 
     public func stop() { onQueue { stopLocked() } }
@@ -57,7 +61,7 @@ public final class ProcessRegistry {
             systemListener = nil
         }
         for (object, block) in processListeners {
-            var address = Self.runningOutputAddress
+            var address = Self.runningAddress
             AudioObjectRemovePropertyListenerBlock(object, &address, queue, block)
         }
         processListeners.removeAll()
@@ -101,12 +105,15 @@ public final class ProcessRegistry {
 
     private func syncProcessListeners(current: Set<AudioObjectID>) {
         for (object, block) in processListeners where !current.contains(object) {
-            var address = Self.runningOutputAddress
+            var address = Self.runningAddress
             AudioObjectRemovePropertyListenerBlock(object, &address, queue, block)
             processListeners[object] = nil
         }
+        // macOS 26.6 delivers change events for kAudioProcessPropertyIsRunning but not for
+        // IsRunningOutput (verified with a listener probe), so listen to IsRunning and re-read the
+        // output flag on every event.
         for object in current where processListeners[object] == nil {
-            var address = Self.runningOutputAddress
+            var address = Self.runningAddress
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 self?.refreshLocked(force: false)
             }
@@ -125,6 +132,11 @@ public final class ProcessRegistry {
 
     static let runningOutputAddress = AudioObjectPropertyAddress(
         mSelector: kAudioProcessPropertyIsRunningOutput,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
+
+    static let runningAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioProcessPropertyIsRunning,
         mScope: kAudioObjectPropertyScopeGlobal,
         mElement: kAudioObjectPropertyElementMain)
 
