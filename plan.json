@@ -111,7 +111,7 @@
       ],
       "owner": "agents",
       "verify": "findings deduped by defect; CRITICAL/HIGH reproduced by Claude before acting",
-      "status": "in progress"
+      "status": "done (Fable red team; Codex critic run 2026-09-15)"
     },
     {
       "id": "T8",
@@ -121,7 +121,7 @@
       ],
       "owner": "claude+codex",
       "verify": "full suite green; DoD 1-10 re-measured where touched",
-      "status": "pending"
+      "status": "done (fixes regression-locked, mutation-tested)"
     },
     {
       "id": "T9",
@@ -131,7 +131,7 @@
       ],
       "owner": "mieszko",
       "verify": "his yes",
-      "status": "pending"
+      "status": "pending (Mieszko's ear test)"
     },
     {
       "id": "T10",
@@ -141,7 +141,7 @@
       ],
       "owner": "claude",
       "verify": "entry present; repo clean",
-      "status": "pending"
+      "status": "done (README, build log 2026-09, memory)"
     }
   ],
   "note": "Codex quota was exhausted on 2026-09-14; T1–T5 were built in-house by Claude with the same verifiers."
