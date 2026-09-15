@@ -39,7 +39,9 @@ JSON (also written to `~/Library/Application Support/Mikser/reply.json`).
 - A scaled app plays through the **system default output**. An app that chose another device itself
   (a call app on a USB headset, Music on AirPlay) is moved to the default output while it is scaled.
 - The audio path of a scaled app pauses while the app is silent and resumes when sound starts; the
-  first 26–156 ms of a new sound can be lost (longest on Bluetooth). Music and video do not notice.
+  first 20–150 ms of a new sound can be lost (longest on Bluetooth). Music and video do not notice.
+- When a path is rebuilt (output change, helper change, reset), the old one fades out while the new
+  one fades in, so a muted app stays silent and a scaled one keeps its level.
 - The control channel is local and unauthenticated: any process running as you can drive it. It
   grants nothing such a process could not do already, except muting a specific app.
 - `mikser-selftest --taps` sees only what other processes see; Mikser's taps and aggregate devices

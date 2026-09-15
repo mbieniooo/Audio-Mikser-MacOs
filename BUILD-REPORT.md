@@ -57,9 +57,14 @@ measured on this machine; nothing is taken from a claim.
 - **Daemons hidden.** Core Audio lists ~20 system agents (assistantd, Siri, Control Center, PowerChime…).
   Rows are shown for Dock apps and for menu bar apps outside /System, plus anything being scaled or
   saved below 100. The grill said "every app"; daemons are not apps.
-- **A timer exists, but only while the popover is open** (0.5 s): a tapped process stops reporting
-  "running output" to the HAL, so the playing mark for scaled apps comes from the tap's own signal.
-  Verified: with the popover closed the process uses 0.0 % CPU.
+- **A timer exists, but only while the popover is open** (0.5 s): it refreshes the playing marks.
+  For scaled apps the mark comes from the tap's own signal (audible now); for the others from the
+  HAL flag. Verified: with the popover closed the process uses 0.0 % CPU.
+  Correction (2026-09-15): the earlier claim that a tapped process stops reporting "running output"
+  was wrong. A listener probe showed the real cause: macOS 26.6 never delivers change events for
+  `kAudioProcessPropertyIsRunningOutput`, only for `kAudioProcessPropertyIsRunning`, so the registry
+  only refreshed when a process appeared or vanished. The registry now listens to `IsRunning` and
+  re-reads the output flag on each event.
 - **New taps start at the target gain**, not at unity: a muted app must not leak its first 30 ms when it
   begins to play.
 
@@ -109,3 +114,21 @@ Report: `redteam-report.md` in the session scratchpad; findings reproduced by th
 | Scope verdict `no (narrowly)` | Accepted: the disclosed deviations are the popover-only timer, hidden daemons, the memory bar, and the verification commands. |
 
 Self-test after the round: 96 checks in debug and release. Mutation checks: reverting each of H2, L6, L4, M4 makes its lock fail (7, 1, 1, 1 failures) and the restored tree passes.
+
+## Cross-vendor critic (Codex, 2026-09-15, read-only review of HEAD after round 1)
+
+Verdict FAIL with 3 HIGH and 5 MEDIUM; each reproduced or refuted by the builder before acting.
+
+| Finding | Reproduction | Status |
+|---|---|---|
+| **HIGH** every IO callback passes through Swift retain/release | Confirmed in the release disassembly: the reabstraction thunk around the closure calls `_swift_retain` and `_swift_release` on each call (no lock or allocation, but runtime work on the IO thread). | Fixed: the IO proc is now a C function (`AudioDeviceCreateIOProcID` with a client-data pointer), no closure, no thunk; `GainMath.warmUp()` runs the render code once before IO starts so no lazy metadata work meets the first callback. |
+| **HIGH** rebuilds destroy the old path before the new one exists, so a muted app leaks at full volume for the gap | True by construction (the registry's HAL flag cannot observe it, verified with a 2 ms probe). | Fixed: crossfade. The new path starts silent and fades in over the 30 ms ramp while the old one fades out and is destroyed 200 ms later; the app is never untapped in between and the two paths sum to a constant. |
+| **HIGH** shared audio state used plain loads and stores | Formally a data race; tear-free on Apple silicon in practice. | Fixed: `Synchronization.Atomic` fields (relaxed ordering) in a non-copyable shared struct owned by the tap. |
+| **MED** liveness check can suspend a healthy paused app forever | Reasoning accepted. | Fixed: a suspended app that the HAL reports playing again is rebuilt, up to 2 attempts, then waits for the user. Tested. |
+| **MED** suspension survives quit and relaunch | Reasoning accepted. | Fixed: an app that quits drops every trace (tap, wanted, suspension, pending release). Tested. |
+| **MED** non-Float32 formats silently bypassed gain and mute | Reasoning accepted. | Fixed: activation refuses a non-Float32 output stream, so the fail safe restores the app with a warning. |
+| **MED** startup mutated queue-owned state off the queue | Reasoning accepted. | Fixed: registry and monitor start on their own queue. |
+| **MED** planar stereo → mono and mono → planar stereo fell through to index matching | Reproduced in the self-test (left channel only, right buffer silent). | Fixed: one general channel mapper for every layout; 6 new checks, mutation-tested. |
+| Note: input buffer 0 assumed to be the tap | Not reproduced: on two duplex devices (Bluetooth headset, USB device with input) the tap was the only input stream. | Documented. |
+
+Self-test after the round: 109 checks in debug and release. Mutation checks: reverting the mono average, the quit cleanup, or the play-retry makes its lock fail.
