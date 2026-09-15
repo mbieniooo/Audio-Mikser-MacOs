@@ -211,16 +211,29 @@ public final class TapEngine {
     }
 
     /// Fades an old path out and destroys it after the crossfade; nothing to do when there is none.
+    /// The fade-out waits until the replacement has delivered its first callback (bounded wait), so
+    /// the two ramps overlap and their sum stays at the level throughout.
     private func retire(_ old: AppTap?, key: AppGroupKey) {
         guard let old else { return }
         if taps[key] === old { taps[key] = nil }
-        old.target = 0
         retiring.append(old)
-        queue.asyncAfter(deadline: .now() + crossfade) { [weak self, weak old] in
-            guard let self, let old else { return }
-            old.invalidate()
-            self.retiring.removeAll { $0 === old }
+        let replacement = taps[key]
+        func fadeOut(attempt: Int) {
+            if let replacement, replacement.callbacks == 0, attempt < 15 {
+                queue.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+                    guard self != nil else { return }
+                    fadeOut(attempt: attempt + 1)
+                }
+                return
+            }
+            old.target = 0
+            queue.asyncAfter(deadline: .now() + crossfade) { [weak self, weak old] in
+                guard let self, let old else { return }
+                old.invalidate()
+                self.retiring.removeAll { $0 === old }
+            }
         }
+        fadeOut(attempt: 0)
     }
 
     /// One-shot, event-driven: a tap made for an app that was audibly playing must start delivering
