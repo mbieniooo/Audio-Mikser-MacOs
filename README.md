@@ -33,3 +33,14 @@ waveform when the app is playing. Levels persist per app. Footer: launch at logi
 `scripts/mikserctl ping | set <app> <0…1> | mute <app> | unmute <app> | reset | stats | dump | quit |
 output list | output set <name> | login on|off|status | popover open|close | snapshot`. Replies are
 JSON (also written to `~/Library/Application Support/Mikser/reply.json`).
+
+## Notes and limits
+
+- A scaled app plays through the **system default output**. An app that chose another device itself
+  (a call app on a USB headset, Music on AirPlay) is moved to the default output while it is scaled.
+- The audio path of a scaled app pauses while the app is silent and resumes when sound starts; the
+  first 26–156 ms of a new sound can be lost (longest on Bluetooth). Music and video do not notice.
+- The control channel is local and unauthenticated: any process running as you can drive it. It
+  grants nothing such a process could not do already, except muting a specific app.
+- `mikser-selftest --taps` sees only what other processes see; Mikser's taps and aggregate devices
+  are private, so it reports none while `mikserctl stats` reports them.

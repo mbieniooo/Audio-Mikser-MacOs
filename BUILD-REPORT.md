@@ -83,3 +83,29 @@ measured on this machine; nothing is taken from a claim.
 9. Settings are keyed by bundle id (or `name:<process>`); an app that changes bundle id loses its level.
 10. `install.sh` quits the app via Apple event, then `pkill`; if a future macOS blocks the event the
     fallback still works.
+
+## Red-team round 1 (2026-09-14, fresh Fable agent, cold read of HEAD 0ea0046)
+
+Report: `redteam-report.md` in the session scratchpad; findings reproduced by the builder before acting.
+
+| Finding | Status |
+|---|---|
+| **H1** release build broken by a test-only `@testable import` | Fixed: hooks made public, no `@testable`; `scripts/build.sh` now runs the release self-test before signing. |
+| **H2** 0.995–0.999 shows "100 %" yet keeps a tap and is persisted | Fixed: levels quantized to 0.01 in `AppLevel` (init, assignment, decoding) and stored values normalized on load; 7 regression checks, mutation-tested. |
+| **M1** main thread `queue.sync`s into the engine queue during a tap build (slider freeze) | Fixed: `activeKeys()` and `playingKeys()` read a lock-protected mirror; the main thread never waits on the engine queue. |
+| **M2** IO auto-pauses when the app is silent; first 26–156 ms of a new sound lost | Inherent to the tap API (Fader/FineTune share it); documented in README. |
+| **M3** a tap whose IO never starts leaves the app silent | Fixed: one-shot liveness check 2.5 s after creating a tap for an app that was audibly playing; a dead path is dropped (app back to full volume, warning glyph) and suspended until the user moves the slider or resets, so it cannot oscillate. Decision function tested. |
+| **M4** local processes can drive the control channel; name prefixes hit daemons | Prefix matching limited to user-facing apps; empty `output set` rejected. The channel stays local and unauthenticated by design (same-user processes can already change the output device or kill the app); the extra commands beyond the brief (`output set`, `login`, `popover`, `snapshot`, `quit`) are a disclosed deviation kept for verification. |
+| **M5** memory bar unmet | Documented honestly: RSS 50 MB idle / 76–89 MB after use; footprint 23 MB idle / 34 MB after use (41 MB with verification snapshots); AlDente 40 MB RSS / 42 MB footprint. |
+| **M6** `stop()` mutates queue-owned state from the main thread | Fixed: registry and monitor stop on their own queue (queue-specific key avoids deadlock). |
+| **M7** helper churn rebuilds the path | Documented; watch `rebuilds` with Chrome/Brave in the ear test. |
+| **M8** scaling re-routes an app to the default output | Documented in README. `dump` lists each app's devices, but `kAudioProcessPropertyDevices` came back empty for a playing process on this Mac, so the case is not enforced. |
+| **L1** IO block hopped through a dispatch queue | Changed to run on the HAL's IO thread (nil queue). Verified live after install: callbacks flow, start delay 22 ms (was 26–156 ms through the queue), ratio 0.2000, no fail safe. |
+| **L4** warning glyph stuck after returning to 100 | Fixed, mutation-tested. |
+| **L5** popover: timer could survive a failed show; icon click while open reopened it | Fixed: unfreeze when show fails; 300 ms reopen guard after a close. |
+| **L6** stereo into N channels repeated right into channels 3…N | Fixed: multi-channel input feeds its own channels, the rest stay silent; mono still duplicates. Mutation-tested. |
+| **L2, L3, L7–L10** | Accepted or documented (README notes `--taps` is blind to private objects; DoD 10 timing comes from the control channel, not the unified log). |
+| DoD 7 "no target-change timestamp" | Added: `sinceTargetChangeMs` per tap in `stats`. Live: 33 ms after a change from 0.2 to 0.6 the gain read 0.462 (two thirds of the way, as a 30 ms one-pole predicts), 0.599 at 177 ms, 0.600 at 525 ms. |
+| Scope verdict `no (narrowly)` | Accepted: the disclosed deviations are the popover-only timer, hidden daemons, the memory bar, and the verification commands. |
+
+Self-test after the round: 96 checks in debug and release. Mutation checks: reverting each of H2, L6, L4, M4 makes its lock fail (7, 1, 1, 1 failures) and the restored tree passes.
