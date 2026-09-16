@@ -2,6 +2,15 @@ import Foundation
 import CoreAudio
 import AppKit
 
+/// The app's bundle identifier: the one place to change when you build your own Mikser.
+/// scripts/build.sh writes it into Info.plist and the code signature; queue labels, notification
+/// names and aggregate-device UIDs all derive from it. macOS keys the System Audio Recording
+/// permission and the saved levels to this value, so changing it later means answering the
+/// permission prompt again and setting levels again.
+public enum MikserID {
+    public static let bundle = "com.mikser.app"
+}
+
 /// Identity of one row in the mixer: an app (by bundle id) or, as a fallback, a process name.
 public struct AppGroupKey: Hashable, Codable, Sendable, CustomStringConvertible {
     public let raw: String

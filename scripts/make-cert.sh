@@ -32,7 +32,7 @@ x509_extensions = ext
 prompt = no
 [dn]
 CN = $NAME
-O = Mieszko
+O = Mikser
 [ext]
 basicConstraints = critical,CA:FALSE
 keyUsage = critical,digitalSignature

@@ -120,7 +120,7 @@ public final class AppTap {
 
         let aggregateDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Mikser \(key.raw)",
-            kAudioAggregateDeviceUIDKey: "com.mieszko.mikser.aggregate." + UUID().uuidString,
+            kAudioAggregateDeviceUIDKey: MikserID.bundle + ".aggregate." + UUID().uuidString,
             kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceClockDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,

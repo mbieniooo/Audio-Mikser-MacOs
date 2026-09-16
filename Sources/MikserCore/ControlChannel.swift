@@ -6,8 +6,8 @@ import AppKit
 /// output list | output set <name>, login on|off|status, popover open|close.
 @MainActor
 public final class ControlChannel {
-    public nonisolated static let controlName = Notification.Name("com.mieszko.mikser.control")
-    public nonisolated static let replyName = Notification.Name("com.mieszko.mikser.reply")
+    public nonisolated static let controlName = Notification.Name(MikserID.bundle + ".control")
+    public nonisolated static let replyName = Notification.Name(MikserID.bundle + ".reply")
     public nonisolated static var replyURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("Mikser", isDirectory: true).appendingPathComponent("reply.json")

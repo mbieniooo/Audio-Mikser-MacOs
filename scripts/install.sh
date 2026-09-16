@@ -17,6 +17,7 @@ if [[ "$BUILD" == 1 ]]; then scripts/build.sh $DEBUG_FLAG; fi
 SRC="build/Mikser.app"
 [[ -d "$SRC" ]] || { echo "missing $SRC (run scripts/build.sh)"; exit 1; }
 
+BUNDLE_ID="$(sed -n 's/.*static let bundle = "\([^"]*\)".*/\1/p' Sources/MikserCore/Types.swift)"
 DEST_DIR="/Applications"
 if [[ ! -w "$DEST_DIR" ]]; then DEST_DIR="$HOME/Applications"; mkdir -p "$DEST_DIR"; fi
 DEST="$DEST_DIR/Mikser.app"
@@ -24,14 +25,14 @@ DEST="$DEST_DIR/Mikser.app"
 if [[ -e "$DEST" ]]; then
   # capture first: `grep -q` under pipefail would close the pipe early and fail the check
   SIGINFO="$(codesign -dv "$DEST" 2>&1 || true)"
-  if ! grep -q "^Identifier=com.mieszko.mikser$" <<<"$SIGINFO"; then
+  if ! grep -q "^Identifier=$BUNDLE_ID$" <<<"$SIGINFO"; then
     echo "refusing to replace $DEST: it is not a Mikser bundle"
     exit 1
   fi
 fi
 
 if pgrep -x Mikser >/dev/null; then
-  osascript -e 'tell application id "com.mieszko.mikser" to quit' >/dev/null 2>&1 || true
+  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
   for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -x Mikser >/dev/null || break; sleep 0.5; done
   pgrep -x Mikser >/dev/null && pkill -x Mikser || true
   sleep 0.5

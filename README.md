@@ -7,6 +7,14 @@ device with a ramped gain. Apps left at 100 % are never touched.
 Requires macOS 15 or newer on Apple Silicon and the Xcode Command Line Tools (a full Xcode install is
 not needed).
 
+## Your own identifier
+
+The bundle identifier lives in one place: `MikserID.bundle` in `Sources/MikserCore/Types.swift`
+(default `com.mikser.app`). Change it before the first build if you want your own; the build script
+writes it into `Info.plist` and the code signature, and everything else derives from it. macOS keys
+the audio permission and the saved levels to it, so changing it later means answering the
+permission prompt again and setting levels again.
+
 ## Build, sign, install
 
 ```bash

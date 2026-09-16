@@ -3,7 +3,7 @@ import MikserCore
 
 func settingsSuite(_ h: Harness) {
     h.suite("Settings") { h in
-        let suite = "com.mieszko.mikser.selftest"
+        let suite = MikserID.bundle + ".selftest"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let s = Settings(defaults: defaults)

@@ -32,8 +32,8 @@ func groupingSuite(_ h: Harness) {
                 return ResolvedIdentity(key: .bundle("com.apple.Music"), displayName: "apple music",
                                         bundleID: "com.apple.Music", icon: nil, appPID: 300)
             case 400:
-                return ResolvedIdentity(key: .bundle("com.mieszko.mikser"), displayName: "Mikser",
-                                        bundleID: "com.mieszko.mikser", icon: nil, appPID: 400)
+                return ResolvedIdentity(key: .bundle(MikserID.bundle), displayName: "Mikser",
+                                        bundleID: MikserID.bundle, icon: nil, appPID: 400)
             default:
                 return ResolvedIdentity(key: .name("afplay"), displayName: "afplay", bundleID: nil, icon: nil, appPID: nil)
             }
@@ -44,7 +44,7 @@ func groupingSuite(_ h: Harness) {
             AudioProcess(objectID: 3, pid: 101, bundleID: "com.google.Chrome.helper", isRunningOutput: true),
             AudioProcess(objectID: 4, pid: 200, bundleID: "com.spotify.client", isRunningOutput: false),
             AudioProcess(objectID: 5, pid: 300, bundleID: "com.apple.Music", isRunningOutput: false),
-            AudioProcess(objectID: 6, pid: 400, bundleID: "com.mieszko.mikser", isRunningOutput: true),
+            AudioProcess(objectID: 6, pid: 400, bundleID: MikserID.bundle, isRunningOutput: true),
             AudioProcess(objectID: 7, pid: 999, bundleID: nil, isRunningOutput: true),
             AudioProcess(objectID: 8, pid: 555, bundleID: nil, isRunningOutput: true),
         ]

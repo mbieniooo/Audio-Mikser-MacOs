@@ -34,8 +34,8 @@ public final class MixerModel {
     public var snapshotBackground = false
 
     @ObservationIgnored public let settings: Settings
-    @ObservationIgnored private let registryQueue = DispatchQueue(label: "com.mieszko.mikser.registry")
-    @ObservationIgnored private let engineQueue = DispatchQueue(label: "com.mieszko.mikser.engine", qos: .userInitiated)
+    @ObservationIgnored private let registryQueue = DispatchQueue(label: MikserID.bundle + ".registry")
+    @ObservationIgnored private let engineQueue = DispatchQueue(label: MikserID.bundle + ".engine", qos: .userInitiated)
     @ObservationIgnored private let registry: ProcessRegistry
     @ObservationIgnored private let output: OutputDeviceMonitor
     @ObservationIgnored public let engine: TapEngine

@@ -13,7 +13,7 @@ func reviewFixSuite(_ h: Harness) {
         h.check("assignment quantizes too", v.isFull)
         let decoded = try? JSONDecoder().decode([String: AppLevel].self, from: Data(#"{"x":{"level":0.997,"muted":false}}"#.utf8))
         h.check("a stored 0.997 decodes as full", decoded?["x"]?.isFull == true)
-        let suite = "com.mieszko.mikser.h2test"
+        let suite = MikserID.bundle + ".h2test"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         defaults.set(Data(#"{"bundle:old":{"level":0.998,"muted":false},"bundle:keep":{"level":0.4,"muted":false}}"#.utf8), forKey: Settings.levelsKey)
@@ -55,7 +55,7 @@ func reviewFixSuite(_ h: Harness) {
 
     h.suite("L4 + M4: error glyph clears at 100; name prefixes only hit user-facing apps") { h in
         MainActor.assumeIsolated {
-            let suite = "com.mieszko.mikser.l4test"
+            let suite = MikserID.bundle + ".l4test"
             let defaults = UserDefaults(suiteName: suite)!
             defaults.removePersistentDomain(forName: suite)
             let model = MixerModel(settings: Settings(defaults: defaults))

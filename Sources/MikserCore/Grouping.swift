@@ -2,7 +2,7 @@ import Foundation
 
 /// Pure grouping logic: audio processes → one row per app. No Core Audio calls here.
 public enum Grouping {
-    public static let ownKey = AppGroupKey.bundle("com.mieszko.mikser")
+    public static let ownKey = AppGroupKey.bundle(MikserID.bundle)
 
     public static func group(_ processes: [AudioProcess],
                              excludingPIDs: Set<pid_t>,

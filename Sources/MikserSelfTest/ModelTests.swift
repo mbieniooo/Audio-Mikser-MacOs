@@ -15,7 +15,7 @@ func modelSuite(_ h: Harness) {
 
     h.suite("MixerModel rows and frozen order") { h in
         MainActor.assumeIsolated {
-            let suite = "com.mieszko.mikser.modeltest"
+            let suite = MikserID.bundle + ".modeltest"
             let defaults = UserDefaults(suiteName: suite)!
             defaults.removePersistentDomain(forName: suite)
             let model = MixerModel(settings: Settings(defaults: defaults))
