@@ -69,3 +69,7 @@ JSON (also written to `~/Library/Application Support/Mikser/reply.json`).
   grants nothing such a process could not do already, except muting a specific app.
 - `mikser-selftest --taps` sees only what other processes see; Mikser's taps and aggregate devices
   are private, so it reports none while `mikserctl stats` reports them.
+
+## License
+
+MIT, see `LICENSE`.

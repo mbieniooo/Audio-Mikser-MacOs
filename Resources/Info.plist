@@ -29,7 +29,7 @@
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Mikser processes each app's audio so you can set its volume. Nothing is recorded or stored.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Local build.</string>
+	<string>MIT License</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
