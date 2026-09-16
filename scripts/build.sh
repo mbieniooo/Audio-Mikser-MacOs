@@ -25,6 +25,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp ".build/$CONFIG/Mikser" "$APP/Contents/MacOS/Mikser"
 cp "Resources/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist"
+cp "Resources/Mikser.icns" "$APP/Contents/Resources/Mikser.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 if [[ -n "${MIKSER_VERSION:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MIKSER_VERSION" "$APP/Contents/Info.plist"

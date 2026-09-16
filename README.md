@@ -1,10 +1,12 @@
 # Mikser
 
+<img src="Resources/icon-preview.png" width="96" alt="Mikser icon" align="right">
+
 Per-app volume for macOS, from the menu bar. No kernel extension, no virtual audio driver: each
 scaled app gets a Core Audio process tap (muted when tapped) re-rendered through a private aggregate
 device with a ramped gain. Apps left at 100 % are never touched.
 
-Requires macOS 15 or newer on Apple Silicon and the Xcode Command Line Tools (a full Xcode install is
+Requires macOS 15 or newer and the Xcode Command Line Tools (a full Xcode install is
 not needed).
 
 ## Your own identifier
@@ -52,7 +54,8 @@ JSON (also written to `~/Library/Application Support/Mikser/reply.json`).
 - `Sources/Mikser/` — the menu bar app (SwiftUI popover).
 - `Sources/MikserCtl/` — the `mikserctl` command-line client.
 - `Sources/MikserSelfTest/` — the self-test runner (Command Line Tools ship no XCTest).
-- `scripts/` — certificate, build, install and measurement helpers.
+- `scripts/` — certificate, build, install and measurement helpers; `make-icon.py` regenerates
+  `Resources/Mikser.icns` (needs Pillow).
 
 ## Notes and limits
 
